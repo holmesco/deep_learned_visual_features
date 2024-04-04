@@ -232,3 +232,5 @@ In the generalization experiment we trained the network using the UTIAS In-The-D
 2. Call `git submodule update --init` in sdprlayer directory 
 3. From the main directory, generate the python environment: `conda env create -f environment.yml`.
 4. `conda activate sdpr`
+5. Download network weights manually. Shell script not working.
+6. Download data manually. Shell script not working.

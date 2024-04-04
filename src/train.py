@@ -270,20 +270,23 @@ def main(config):
     dataloader_params = config['data_loader']
     dataset_params = config['dataset']
     dataset_params['data_dir'] = data_path
-
+    # Sampling for epochs
+    num_samples_train = config['training']['num_samples_train']
+    num_samples_valid = config['training']['num_samples_valid']
+    
     localization_data = None
     with open(dataset_path, 'rb') as handle:
         localization_data = pickle.load(handle)
 
     # Training data generator (randomly sample a subset of the full dataset for each epoch).
     train_set = Dataset(**dataset_params)
-    train_sampler = RandomSampler(train_set, replacement=True, num_samples=10000)
+    train_sampler = RandomSampler(train_set, replacement=True, num_samples=num_samples_train)
     train_set.load_mel_data(localization_data, 'training')
     train_loader = data.DataLoader(train_set, sampler=train_sampler, **dataloader_params)
 
     # Validation data generator (randomly sample a subset of the full dataset for each epoch).
     validation_set = Dataset(**dataset_params)
-    validation_sampler = RandomSampler(validation_set, replacement=True, num_samples=2500)
+    validation_sampler = RandomSampler(validation_set, replacement=True, num_samples=num_samples_valid)
     validation_set.load_mel_data(localization_data, 'validation')
     validation_loader = data.DataLoader(validation_set, sampler=validation_sampler, **dataloader_params)
 

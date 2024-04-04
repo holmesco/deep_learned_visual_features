@@ -1,0 +1,35 @@
+name: sdpr
+channels:
+    - defaults
+    - conda-forge
+    - anaconda
+    - mosek
+
+dependencies:
+    - python=3.9
+    - pip=22.3
+    # Packages
+    - numpy=1.23
+    - matplotlib=3.6
+    - jupyterlab=3.5
+    - ipynbname=2021.3
+    - scipy=1.10
+    - pytorch=2.0.1
+    - mosek
+    - cvxopt
+    - pandas
+    - pyvis
+    - seaborn
+    # Testing & linting
+    - pytest=7.1
+    - pytest-cov=4.0
+    - flake8=6.0
+    
+    - pip:
+        - -e sdpr_layer/.
+        - theseus-ai==0.2.1
+        - spatialmath-python
+        - progress
+        - cvxpy
+        - asrl-pylgmath
+        - -r requirements.txt
