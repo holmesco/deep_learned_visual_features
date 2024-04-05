@@ -51,10 +51,10 @@ class LocBlock(nn.Module):
         """
         batch_size, _, n_points = keypoints_3D_src.size()
 
-        # Construct objective function matrix
+        # Construct objective function
         Qs, _, _ = self.get_obj_matrix(keypoints_3D_src, keypoints_3D_trg, weights)
         # Evaluate
-        solver_args = {"solve_method": "SCS", "eps": 1e-12, "verbose": False}
+        solver_args = {"solve_method": "SCS", "eps": 1e-9, "verbose": False}
         x = self.sdprlayer(Qs, solver_args=solver_args)[1]
         # Extract solution
         t_trg_src_intrg = x[:, 9:]
@@ -85,6 +85,7 @@ class LocBlock(nn.Module):
         Returns:
             _type_: _description_
         """
+        # TODO should vectorize this function to improve runtime
         # Get batch dimension
         N_batch = keypoints_3D_src.shape[0]
         # Indices
@@ -92,18 +93,16 @@ class LocBlock(nn.Module):
         c = slice(1, 10)
         t = slice(10, 13)
         Q_batch = []
-        scales = torch.zeros(N_batch, dtype=torch.double)
-        offsets = torch.zeros(N_batch, dtype=torch.double)
+        scales = torch.zeros(N_batch).cuda()
+        offsets = torch.zeros(N_batch).cuda()
         for b in range(N_batch):
             Q_es = []
             for i in range(keypoints_3D_trg.shape[-1]):
-                W_ij = weights[b, 0, i] * torch.eye(3)
-                m_j0_0 = keypoints_3D_src[b, :, [i]]
-                if m_j0_0.shape == (1, 3):
-                    m_j0_0 = m_j0_0.T
-                y_ji_i = keypoints_3D_trg[b, :, [i]]
+                W_ij = weights[b, 0, i] * torch.eye(3).cuda()
+                m_j0_0 = keypoints_3D_src[b, :3, [i]]
+                y_ji_i = keypoints_3D_trg[b, :3, [i]]
                 # Define matrix
-                Q_e = torch.zeros(13, 13, dtype=torch.double)
+                Q_e = torch.zeros(13, 13).cuda()
                 # Diagonals
                 Q_e[c, c] = kron(m_j0_0 @ m_j0_0.T, W_ij)
                 Q_e[t, t] = W_ij

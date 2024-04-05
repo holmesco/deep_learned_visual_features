@@ -1,6 +1,6 @@
 {
     "home_path": "/home/cho/projects/deep_learned_visual_features",
-    "experiment_name": "train_check_pipeline",
+    "experiment_name": "train_check_pipeline_svd",
     "dataset_name": "dataset_inthedark",
     "checkpoint_name": "network_inthedark_layer32",
     "training": {
@@ -18,7 +18,8 @@
     "pipeline": {
         "window_h": 16,
         "window_w": 16,
-        "dense_matching": true
+        "dense_matching": true,
+        "localization": "svd"
     },
     "outlier_rejection": {
         "on": true,
