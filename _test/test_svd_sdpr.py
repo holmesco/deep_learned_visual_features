@@ -2,10 +2,10 @@ import unittest
 
 import numpy as np
 import torch
+from src.model.svd_block import SVDBlock
 
 import sdprlayer.stereo_tuner as st
 from sdprlayer import SDPRLayer
-from src.model.svd_block import SVDBlock
 
 
 def set_seed(x):

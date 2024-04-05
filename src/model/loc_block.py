@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.utils.lie_algebra import se3_log, se3_inv
 from sdprlayer import SDPRLayer
+from src.utils.lie_algebra import se3_inv, se3_log
 
 
 class LocBlock(nn.Module):
