@@ -51,9 +51,9 @@ class TestLocalize(unittest.TestCase):
         rot_cols = torch.cat([C_p0s, zeros], dim=1)  # Bx4x3
         T_trg_src = torch.cat([rot_cols, trans_cols], dim=2)  # Bx4x4
         # Store values
-        t.keypoints_3D_src = r_ls
-        t.keypoints_3D_trg = meas
-        t.weights = weights
+        t.keypoints_3D_src = r_ls.cuda()
+        t.keypoints_3D_trg = meas.cuda()
+        t.weights = weights.cuda()
         t.T_trg_src = T_trg_src
 
     def test_svd_forward(t):
@@ -75,7 +75,9 @@ class TestLocalize(unittest.TestCase):
         # Run forward with data
         T_trg_src = loc_block(t.keypoints_3D_src, t.keypoints_3D_trg, t.weights)
         # Check that
-        np.testing.assert_allclose(T_trg_src.numpy(), t.T_trg_src.numpy(), atol=1e-7)
+        np.testing.assert_allclose(
+            T_trg_src.cpu().numpy(), t.T_trg_src.numpy(), atol=1e-7
+        )
 
 
 if __name__ == "__main__":
