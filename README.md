@@ -235,4 +235,5 @@ In the generalization experiment we trained the network using the UTIAS In-The-D
 5. Download network weights manually. Shell script not working.
 6. Download data manually. Shell script not working.
 7. Clone sdprlayers to separate directory
-8. `pip install' packages in sdprlayer: poly_matrix, mat_weight_certs, diffcp, cvxpylayers, sdprlayers
+8. `pip install' packages in sdprlayer: poly_matrix, mat_weight_certs, diffcp, cvxpylayers, sdprlayers, cert-tools
+9. install tensorboardX

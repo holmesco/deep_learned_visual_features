@@ -325,7 +325,8 @@ class Pipeline(nn.Module):
                 raise RuntimeError(
                     "Too few inliers to compute pose: {}".format(num_inliers)
                 )
-
+            # TODO could reduce the dimension of the problem by removing measurements
+            # that are note valid here. Would this impact training?
             weights[valid == 0] = 0.0
             if self.config["pipeline"]["localization"] == "svd":
                 T_trg_src = self.svd_block(kpt_3D_src, kpt_3D_pseudo, weights)
