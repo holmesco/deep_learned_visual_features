@@ -214,8 +214,10 @@ class UNetVGG16(nn.Module):
         self.learn_score = True
         self.learn_detector = True
         bilinear = True
-
-        model = torchvision.models.vgg16(pretrained=pretrained)
+        if pretrained:
+            model = torchvision.models.vgg16(weights='DEFAULT')
+        else:
+            model = torchvision.models.vgg16(pretrained=False)  
 
         self.layer1 = nn.Sequential(
             *list(model.features.children())[0:4]

@@ -10,6 +10,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+from torch.profiler import ProfilerActivity, profile, record_function
 from torch.utils import data
 from torch.utils.data.sampler import RandomSampler
 from tqdm import tqdm
@@ -82,20 +83,20 @@ def execute_epoch(
             batch_size = images.size(0)
             if mode == "training":
                 optimizer.zero_grad()
+            with record_function("Run pipeline"):
+                try:
+                    # Compute the loss and the output pose.
+                    losses, output_se3 = pipeline.forward(
+                        net, images, disparities, pose_se3, pose_log, epoch
+                    )
 
-            try:
-                # Compute the loss and the output pose.
-                losses, output_se3 = pipeline.forward(
-                    net, images, disparities, pose_se3, pose_log, epoch
-                )
+                    if mode == "training":
+                        losses["total"].backward()
 
-                if mode == "training":
-                    losses["total"].backward()
-
-            except Exception as e:
-                print(e)
-                print("Ids: {}".format(ids))
-                continue
+                except Exception as e:
+                    print(e)
+                    print("Ids: {}".format(ids))
+                    continue
 
             if mode == "training":
                 torch.nn.utils.clip_grad_norm(
@@ -106,24 +107,25 @@ def execute_epoch(
             num_batches += 1
             num_examples += batch_size
 
-            # Get the error in each of the 6 pose DOF.
-            diff = (
-                se3_log(output_se3.inverse().bmm(pose_se3.cuda()))
-                .detach()
-                .cpu()
-                .numpy()
-            )
-            if num_batches == 1:
-                errors = diff
-            else:
-                errors = np.concatenate((errors, diff), axis=0)
-
-            # Save the losses during the epoch.
-            for loss_type in losses.keys():
-                if loss_type in epoch_losses:
-                    epoch_losses[loss_type] += losses[loss_type].item()
+            with record_function("compute 6dof error"):
+                # Get the error in each of the 6 pose DOF.
+                diff = (
+                    se3_log(output_se3.inverse().bmm(pose_se3.cuda()))
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+                if num_batches == 1:
+                    errors = diff
                 else:
-                    epoch_losses[loss_type] = losses[loss_type].item()
+                    errors = np.concatenate((errors, diff), axis=0)
+            with record_function("Record epoch losses"):
+                # Save the losses during the epoch.
+                for loss_type in losses.keys():
+                    if loss_type in epoch_losses:
+                        epoch_losses[loss_type] += losses[loss_type].item()
+                    else:
+                        epoch_losses[loss_type] = losses[loss_type].item()
 
             targets_total += torch.sum(torch.abs(pose_log), dim=0).detach().cpu()
             targets_max = torch.max(
@@ -234,31 +236,33 @@ def train(
     # The training loop.
     for epoch in range(start_epoch, config["training"]["max_epochs"]):
         print(f"Epoch: {epoch}, train:", file=std_out)
-        train_loss, train_stats = execute_epoch(
-            pipeline,
-            net,
-            train_loader,
-            train_stats,
-            epoch,
-            "training",
-            config,
-            dof,
-            optimizer,
-            scheduler,
-            std_out,
-        )
-        print(f"Epoch: {epoch}, validate:", file=std_out)
-        validation_loss, validation_stats = execute_epoch(
-            pipeline,
-            net,
-            validation_loader,
-            validation_stats,
-            epoch,
-            "validation",
-            config,
-            dof,
-            std_out,
-        )
+        with record_function("train epoch"):
+            train_loss, train_stats = execute_epoch(
+                pipeline,
+                net,
+                train_loader,
+                train_stats,
+                epoch,
+                "training",
+                config,
+                dof,
+                optimizer,
+                scheduler,
+                std_out,
+            )
+        with record_function("validate epoch"):
+            print(f"Epoch: {epoch}, validate:", file=std_out)
+            validation_loss, validation_stats = execute_epoch(
+                pipeline,
+                net,
+                validation_loader,
+                validation_stats,
+                epoch,
+                "validation",
+                config,
+                dof,
+                std_out,
+            )
 
         # Only start checking the loss after we start computing the pose loss. Sometimes we only compute keypoint loss
         # for the first few epochs.
@@ -282,13 +286,20 @@ def train(
                 break
 
 
-def main(config):
+def main(config, profiler_on=False, debug=False):
     """
     Set up everything needed for training and call the function to run the training loop.
 
     Args:
         config (dict): configurations for training the network.
     """
+    if profiler_on or debug:
+        config["training"]["num_samples_train"] = 10
+        config["training"]["num_samples_valid"] = 10
+        config["training"]["max_epochs"] = 1
+        config["training"]["start_pose_estimation"] = 0
+        config["experiment_name"] = config["experiment_name"] + "_profile"
+
     results_path = f"{config['home_path']}/results/{config['experiment_name']}/"
     checkpoints_path = f"{config['home_path']}/networks"
     data_path = f"{config['home_path']}/data"
@@ -308,11 +319,12 @@ def main(config):
 
     # Print outputs to files
     orig_stdout = sys.stdout
-    fl = open(f"{results_path}out_train.txt", "w")
-    sys.stdout = fl
-    orig_stderr = sys.stderr
-    fe = open(f"{results_path}err_train.txt", "w")
-    sys.stderr = fe
+    if not profiler_on:
+        fl = open(f"{results_path}out_train.txt", "w")
+        sys.stdout = fl
+        orig_stderr = sys.stderr
+        fe = open(f"{results_path}err_train.txt", "w")
+        sys.stderr = fe
 
     # Record the config settings.
     print(f"\nTraining parameter configurations: \n{config}\n")
@@ -321,7 +333,7 @@ def main(config):
     dataloader_params = config["data_loader"]
     dataset_params = config["dataset"]
     dataset_params["data_dir"] = data_path
-    # Sampling for epochs
+    # Sampling for epochs (if profiling, reduce samples)
     num_samples_train = config["training"]["num_samples_train"]
     num_samples_valid = config["training"]["num_samples_valid"]
 
@@ -355,7 +367,7 @@ def main(config):
         if torch.cuda.device_count() > 0
         else "cpu"
     )
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(device)
 
     # Set training pipeline
     training_pipeline = Pipeline(config)
@@ -401,8 +413,10 @@ def main(config):
                 for k, v in state.items():
                     if isinstance(v, torch.Tensor):
                         state[k] = v.cuda()
-
-        start_epoch = checkpoint["epoch"] + 1 if "epoch" in checkpoint.keys() else 0
+        if profiler_on:  # restart epoch so that we can just run one epoch
+            start_epoch = 0
+        else:
+            start_epoch = checkpoint["epoch"] + 1 if "epoch" in checkpoint.keys() else 0
         min_validation_loss = (
             checkpoint["val_loss"] if "val_loss" in checkpoint.keys() else 10e9
         )
@@ -419,7 +433,7 @@ def main(config):
 
     net.cuda()
 
-    train(
+    training_inputs = [
         training_pipeline,
         net,
         optimizer,
@@ -434,13 +448,26 @@ def main(config):
         results_path,
         checkpoint_path,
         orig_stdout,
-    )
+    ]
+    if profiler_on:
+        prof = profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            with_stack=False,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/deep_feat"),
+            profile_memory=True,
+        )
+        prof.start()
 
-    # Stop writing outputs to file.
-    sys.stdout = orig_stdout
-    fl.close()
-    sys.stderr = orig_stderr
-    fe.close()
+    train(*training_inputs)
+
+    if profiler_on:
+        prof.stop()
+        prof.export_chrome_trace("trace.json")
+    else:
+        sys.stdout = orig_stdout
+        fl.close()
+        sys.stderr = orig_stderr
+        fe.close()
 
 
 if __name__ == "__main__":
@@ -448,10 +475,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config", default=None, type=str, help="config file path (default: None)"
     )
+    parser.add_argument("--profile", action="store_true", help="profile the code.")
+    parser.add_argument("--debug", action="store_true", help="profile the code.")
 
     args = parser.parse_args()
 
     with open(args.config) as f:
         config = json.load(f)
 
-    main(config)
+    main(config, profiler_on=args.profile, debug=args.debug)
