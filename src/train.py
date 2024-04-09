@@ -233,7 +233,7 @@ def train(
 
     # The training loop.
     for epoch in range(start_epoch, config["training"]["max_epochs"]):
-
+        print(f"Epoch: {epoch}, train:", file=std_out)
         train_loss, train_stats = execute_epoch(
             pipeline,
             net,
@@ -247,7 +247,7 @@ def train(
             scheduler,
             std_out,
         )
-
+        print(f"Epoch: {epoch}, validate:", file=std_out)
         validation_loss, validation_stats = execute_epoch(
             pipeline,
             net,
@@ -257,6 +257,7 @@ def train(
             "validation",
             config,
             dof,
+            std_out,
         )
 
         # Only start checking the loss after we start computing the pose loss. Sometimes we only compute keypoint loss
