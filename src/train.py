@@ -450,20 +450,17 @@ def main(config, profiler_on=False, debug=False):
         orig_stdout,
     ]
     if profiler_on:
-        prof = profile(
+        with profile(
             activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
             with_stack=False,
             on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/deep_feat"),
             profile_memory=True,
-        )
-        prof.start()
-
-    train(*training_inputs)
-
-    if profiler_on:
-        prof.stop()
-        prof.export_chrome_trace("trace.json")
+        ) as prof:
+            train(*training_inputs)
     else:
+        train(*training_inputs)
+
+    if not profiler_on:
         sys.stdout = orig_stdout
         fl.close()
         sys.stderr = orig_stderr

@@ -10,7 +10,11 @@ from src.model.ransac_block import RANSACBlock
 from src.model.svd_block import SVDBlock
 from src.model.unet import UNet
 from src.model.weight_block import WeightBlock
-from src.utils.keypoint_tools import get_keypoint_info, get_norm_descriptors
+from src.utils.keypoint_tools import (
+    get_inv_cov_weights,
+    get_keypoint_info,
+    get_norm_descriptors,
+)
 from src.utils.lie_algebra import se3_inv, se3_log
 from src.utils.stereo_camera_model import StereoCameraModel
 
@@ -203,6 +207,18 @@ class Pipeline(nn.Module):
                 kpt_scores_src,
                 kpt_scores_pseudo,
             )
+
+            # Compute inverse covariance weightings
+            # NOTE: Assume that all of the variation is lumped on the pseudo targets
+            if self.config["pipeline"]["use_inv_cov_weights"]:
+                assert (
+                    self.config["pipeline"]["localization"] == "sdpr"
+                ), "Only SDPR supported for inv cov weights"
+                inv_cov_weights = get_inv_cov_weights(
+                    kpt_3D=kpt_3D_pseudo, stereo_cam=self.stereo_cam
+                )
+            else:
+                inv_cov_weights = None
 
         ################################################################################################################
         # Outlier rejection
