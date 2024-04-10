@@ -36,7 +36,9 @@ class LocBlock(nn.Module):
 
         self.register_buffer("T_s_v", T_s_v)
 
-    def forward(self, keypoints_3D_src, keypoints_3D_trg, weights):
+    def forward(
+        self, keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
+    ):
         """
         Compute the pose, T_trg_src, from the source to the target frame.
 
@@ -45,6 +47,7 @@ class LocBlock(nn.Module):
             keypoints_3D_trg (torch,tensor, Bx4xN): 3D point coordinates of keypoints from target frame.
             weights (torch.tensor, Bx1xN): weights in range (0, 1) associated with the matched source and target
                                            points.
+            inv_cov_weights (torch.tensor, BxNx3x3): Inverse Covariance Matrices defined for each point.
 
         Returns:
             T_trg_src (torch.tensor, Bx4x4): relative transform from the source to the target frame.
@@ -52,9 +55,12 @@ class LocBlock(nn.Module):
         batch_size, _, n_points = keypoints_3D_src.size()
 
         # Construct objective function
-        Qs, _, _ = self.get_obj_matrix_vec(keypoints_3D_src, keypoints_3D_trg, weights)
+        Qs, _, _ = self.get_obj_matrix_vec(
+            keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights
+        )
         # Evaluate
-        solver_args = {"solve_method": "SCS", "eps": 1e-9, "verbose": False}
+        solver_args = {"solve_method": "SCS", "eps": 1e-9, "verbose": True}
+        solver_args = {"solve_method": "mosek", "verbose": True}
         x = self.sdprlayer(Qs, solver_args=solver_args)[1]
         # Extract solution
         t_trg_src_intrg = x[:, 9:]
@@ -74,12 +80,14 @@ class LocBlock(nn.Module):
         return T_trg_src
 
     @staticmethod
-    def get_obj_matrix(keypoints_3D_src, keypoints_3D_trg, weights):
+    def get_obj_matrix(
+        keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
+    ):
         """
         Compute the QCQP (Quadratically Constrained Quadratic Program) objective matrix
         based on the given 3D keypoints from source and target frames, and their corresponding weights.
-
-        This function is currently not vectorized and iterates over each batch and each keypoint.
+        NOTE: This function is here only for debugging. It is not used in the forward pass.
+              This function is currently not vectorized and iterates over each batch and each keypoint.
 
         Args:
             keypoints_3D_src (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
@@ -94,7 +102,6 @@ class LocBlock(nn.Module):
         Returns:
             list: A list of tensors representing the QCQP objective matrices for each batch.
         """
-        # TODO should vectorize this function to improve runtime
         # Get batch dimension
         N_batch = keypoints_3D_src.shape[0]
         # Indices
@@ -107,7 +114,10 @@ class LocBlock(nn.Module):
         for b in range(N_batch):
             Q_es = []
             for i in range(keypoints_3D_trg.shape[-1]):
-                W_ij = weights[b, 0, i] * torch.eye(3).cuda()
+                if inv_cov_weights is None:
+                    W_ij = torch.eye(3).cuda()
+                else:
+                    W_ij = inv_cov_weights[b, i, :, :]
                 m_j0_0 = keypoints_3D_src[b, :3, [i]]
                 y_ji_i = keypoints_3D_trg[b, :3, [i]]
                 # Define matrix
@@ -127,7 +137,8 @@ class LocBlock(nn.Module):
                 # Add to running list of measurements
                 Q_es += [Q_e]
             # Combine objective
-            Q = torch.stack(Q_es).sum(dim=0)
+            Q_es = torch.stack(Q_es)
+            Q = torch.einsum("nij,n->ij", Q_es, weights[b, 0, :])
             # remove constant offset
             offsets[b] = Q[0, 0].clone()
             Q[0, 0] = 0.0
@@ -140,10 +151,13 @@ class LocBlock(nn.Module):
         return torch.stack(Q_batch), scales, offsets
 
     @staticmethod
-    def get_obj_matrix_vec(keypoints_3D_src, keypoints_3D_trg, weights):
+    def get_obj_matrix_vec(
+        keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
+    ):
         """Compute the QCQP (Quadratically Constrained Quadratic Program) objective matrix
         based on the given 3D keypoints from source and target frames, and their corresponding weights.
-        This is a vectorized version of the function above
+        See matrix in Holmes et al: "On Semidefinite Relaxations for Matrix-Weighted
+        State-Estimation Problems in Robotics"
 
          Args:
             keypoints_3D_src (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
@@ -154,6 +168,7 @@ class LocBlock(nn.Module):
                                              N_batch is the batch size and N is the number of keypoints.
             weights (torch.Tensor): A tensor of shape (N_batch, 1, N) representing the weights
                                     corresponding to each keypoint.
+            inv_cov_weights (torch.tensor, BxNx3x3): Inverse Covariance Matrices defined for each point.
         Returns:
             _type_: _description_
         """
@@ -166,33 +181,37 @@ class LocBlock(nn.Module):
         # relabel and dehomogenize
         m = keypoints_3D_src[:, :3, :]
         y = keypoints_3D_trg[:, :3, :]
-        Q_e = torch.zeros(B, N, 13, 13).cuda()
+        Q_n = torch.zeros(B, N, 13, 13).cuda()
+        # world frame keypoint vector outer product
+        M = torch.einsum("bin,bjn->bnij", m, m)  # BxNx3x3
+        if inv_cov_weights is not None:
+            W = inv_cov_weights  # BxNx3x3
+        else:
+            # Weight with identity if no weights are provided
+            W = torch.eye(3, 3).cuda().expand(B, N, -1, -1)
         # diagonal elements
-        M = torch.einsum("bin,bjn->bnij", m, m)  # outer product
-        I = torch.eye(3, 3).cuda().expand(B, N, -1, -1)  # identity
-        Q_e[:, :, c, c] = kron(M, I)
-        Q_e[:, :, t, t] = I
-        Q_e[:, :, h, h] = torch.einsum("bin,bin->bn", y, y)  # inner product
+        Q_n[:, :, c, c] = kron(M, W)  # BxNx9x9
+        Q_n[:, :, t, t] = W  # BxNx3x3
+        Q_n[:, :, h, h] = torch.einsum("bin,bnij,bjn->bn", y, W, y)  # BxN
         # Off Diagonals
-        m_ = m.transpose(-1, -2).unsqueeze(3)
-        y_ = y.transpose(-1, -2).unsqueeze(3)
-        Q_e[:, :, c, t] = -kron(m_, I)
-        Q_e[:, :, t, c] = Q_e[:, :, c, t].transpose(-1, -2)
-        Q_e[:, :, c, h] = -kron(m_, y_).squeeze(-1)
-        Q_e[:, :, h, c] = Q_e[:, :, c, h]
-        Q_e[:, :, t, h] = y.transpose(-1, -2)
-        Q_e[:, :, h, t] = Q_e[:, :, t, h]
+        m_ = m.transpose(-1, -2).unsqueeze(3)  # BxNx3x1
+        Wy = torch.einsum("bnij,bjn->bni", W, y).unsqueeze(3)  # BxNx3x1
+        Q_n[:, :, c, t] = -kron(m_, W)  # BxNx9x3
+        Q_n[:, :, t, c] = Q_n[:, :, c, t].transpose(-1, -2)  # BxNx3x9
+        Q_n[:, :, c, h] = -kron(m_, Wy).squeeze(-1)  # BxNx9
+        Q_n[:, :, h, c] = Q_n[:, :, c, h]  # BxNx9
+        Q_n[:, :, t, h] = Wy.squeeze(-1)  # BxNx3
+        Q_n[:, :, h, t] = Q_n[:, :, t, h]  # Bx3xN
         # Scale by weights
         weights = weights.squeeze(1)
-        Q = torch.einsum("bnij,bn->bij", Q_e, weights)
-        # operations below are to improve optimization conditioning
+        Q = torch.einsum("bnij,bn->bij", Q_n, weights)
+        # NOTE: operations below are to improve optimization conditioning
         # remove constant offset
         offsets = Q[:, 0, 0].clone()
         Q[:, 0, 0] = torch.zeros(B).cuda()
         # rescale
         scales = torch.norm(Q, p="fro")
         Q = Q / torch.norm(Q, p="fro")
-
         return Q, scales, offsets
 
     @staticmethod

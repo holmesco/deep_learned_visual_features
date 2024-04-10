@@ -124,13 +124,15 @@ def get_keypoint_info(kpt_2D, scores_map, descriptors_map, disparity, stereo_cam
     return kpt_3D, valid, kpt_desc_norm, kpt_scores
 
 
-def get_inv_cov_weights(kpt_3D, stereo_cam: StereoCameraModel):
+def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     """Generate the inverse covariance weights for each keypoint, based on stereo
     camera model.
 
     Args:
         kpt_3D (torch.tensor): keypoint 3D coordinates in the sensor frame (left camera frame) given in
                                    homogeneous coordinates, (Bx4xN).
+        valid (torch.tensor): 1 if the keypoint 3D coordinate is valid (i.e. falls in the accepted depth range) and
+                              0 otherwise, (Bx1xN).
         stereo_cam (StereoCameraModel): stereo camera model.
     """
     B = kpt_3D.size(0)  # Batch size
@@ -161,6 +163,11 @@ def get_inv_cov_weights(kpt_3D, stereo_cam: StereoCameraModel):
     # Compute covariance in camera frame
     cov_pxl = cov_pxl[None, None, :, :].expand(B, N, 3, 3).cuda()
     cov_cam = torch.einsum("bnij,bnjk,bnkl->bnil", G, cov_pxl, G.transpose(-1, -2))
+    # Mask invalid covariances with identity before inverting to avoid
+    # numerical issues
+    valid_mat = valid.transpose(-1, -2)[:, :, :, None].expand(B, N, 3, 3)
+    identity = torch.eye(3)[None, None, :, :].expand(B, N, -1, -1).cuda()
+    cov_cam[valid_mat == 0] = identity[valid_mat == 0]
     # Invert to get weight matrices
     W = torch.cholesky_inverse(cov_cam)
 

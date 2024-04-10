@@ -78,8 +78,8 @@ class Pipeline(nn.Module):
         v_coord, u_coord = torch.meshgrid(
             [torch.arange(0, self.height), torch.arange(0, self.width)]
         )
-        v_coord = v_coord.reshape(self.height * self.width).float()  # HW
-        u_coord = u_coord.reshape(self.height * self.width).float()
+        v_coord = v_coord.reshape(self.height * self.width).double()  # HW
+        u_coord = u_coord.reshape(self.height * self.width).double()
         image_coords = torch.stack((u_coord, v_coord), dim=0)  # 2xHW
         self.register_buffer("image_coords", image_coords)
 
@@ -199,7 +199,7 @@ class Pipeline(nn.Module):
                 )
             )
 
-        with record_function("Weight computation"):
+        with record_function("Scalar weight computation"):
             # Compute the weight associated with each matched point pair. They will be used when computing the pose.
             weights = self.weight_block(
                 kpt_desc_norm_src,
@@ -207,18 +207,6 @@ class Pipeline(nn.Module):
                 kpt_scores_src,
                 kpt_scores_pseudo,
             )
-
-            # Compute inverse covariance weightings
-            # NOTE: Assume that all of the variation is lumped on the pseudo targets
-            if self.config["pipeline"]["use_inv_cov_weights"]:
-                assert (
-                    self.config["pipeline"]["localization"] == "sdpr"
-                ), "Only SDPR supported for inv cov weights"
-                inv_cov_weights = get_inv_cov_weights(
-                    kpt_3D=kpt_3D_pseudo, stereo_cam=self.stereo_cam
-                )
-            else:
-                inv_cov_weights = None
 
         ################################################################################################################
         # Outlier rejection
@@ -341,10 +329,8 @@ class Pipeline(nn.Module):
         with record_function("Pose estimation"):
             # We can choose to use just the keypoint loss and not compute pose for the first few epochs.
             if test or (epoch >= self.config["training"]["start_pose_estimation"]):
-
                 #  Check that we have enough inliers for all example sin the bach to compute pose.
                 valid = kpt_valid_src & kpt_valid_pseudo & valid_inliers
-
                 num_inliers = torch.sum(valid.squeeze(1), dim=1)[0]
                 if torch.any(num_inliers < 6):
                     raise RuntimeError(
@@ -356,7 +342,23 @@ class Pipeline(nn.Module):
                 if self.config["pipeline"]["localization"] == "svd":
                     T_trg_src = self.svd_block(kpt_3D_src, kpt_3D_pseudo, weights)
                 elif self.config["pipeline"]["localization"] == "sdpr":
-                    T_trg_src = self.loc_block(kpt_3D_src, kpt_3D_pseudo, weights)
+                    # Compute inverse covariance weightings
+                    # NOTE: Assume that all of the variation is lumped on the pseudo targets
+                    if (
+                        "use_inv_cov_weights" in self.config["pipeline"]
+                        and self.config["pipeline"]["use_inv_cov_weights"]
+                    ):
+                        with record_function("Inverse covariance weights"):
+                            inv_cov_weights, cov = get_inv_cov_weights(
+                                kpt_3D=kpt_3D_pseudo,
+                                valid=valid,
+                                stereo_cam=self.stereo_cam,
+                            )
+                    else:
+                        inv_cov_weights = None
+                    T_trg_src = self.loc_block(
+                        kpt_3D_src, kpt_3D_pseudo, weights, inv_cov_weights
+                    )
                 else:
                     raise ValueError("Localization configuration unknown")
 
