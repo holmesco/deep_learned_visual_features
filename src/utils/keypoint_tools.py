@@ -170,7 +170,8 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     cov_cam[valid_mask == 0] = identity[valid_mask == 0]
     # Invert to get weight matrices
     W = torch.cholesky_inverse(cov_cam)
-    W[valid_mask == 0] = 0.0
+    # Zero out the entries that we don't want to avoid computing the trace
+    W = torch.where(valid_mask, W, torch.zeros_like(W))
     # Normalize the weight matrices via the average trace * N_features
     batch_trace = torch.vmap(torch.vmap(torch.trace))
     factor = torch.mean(batch_trace(W), dim=1)

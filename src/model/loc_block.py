@@ -76,7 +76,7 @@ class LocBlock(nn.Module):
         solver_args = {
             "solve_method": "mosek",
             "mosek_params": self.mosek_params,
-            "verbose": True,
+            "verbose": False,
         }
         # Run layer
         x = self.sdprlayer(Qs, solver_args=solver_args)[1]
