@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mwcerts.mat_weight_problem import Constraint
 from poly_matrix import PolyMatrix
 from sdprlayer import SDPRLayer
 
@@ -35,6 +34,14 @@ class LocBlock(nn.Module):
         self.sdprlayer = SDPRLayer(n_vars=13, constraints=constraints)
 
         self.register_buffer("T_s_v", T_s_v)
+        self.mosek_params = {
+            "MSK_IPAR_INTPNT_MAX_ITERATIONS": 1000,
+            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": 1e-8,
+            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": 1e-8,
+            "MSK_DPAR_INTPNT_CO_TOL_MU_RED": 1e-12,
+            "MSK_DPAR_INTPNT_CO_TOL_INFEAS": 1e-8,
+            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": 1e-8,
+        }
 
     def forward(
         self, keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
@@ -58,9 +65,20 @@ class LocBlock(nn.Module):
         Qs, _, _ = self.get_obj_matrix_vec(
             keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights
         )
-        # Evaluate
-        solver_args = {"solve_method": "SCS", "eps": 1e-9, "verbose": True}
-        solver_args = {"solve_method": "mosek", "verbose": True}
+        # Set up solver parameters
+        # solver_args = {
+        #     "solve_method": "SCS",
+        #     "eps": 1e-7,
+        #     "normalize": True,
+        #     "max_iters": 100000,
+        #     "verbose": True,
+        # }
+        solver_args = {
+            "solve_method": "mosek",
+            "mosek_params": self.mosek_params,
+            "verbose": True,
+        }
+        # Run layer
         x = self.sdprlayer(Qs, solver_args=solver_args)[1]
         # Extract solution
         t_trg_src_intrg = x[:, 9:]
@@ -205,13 +223,15 @@ class LocBlock(nn.Module):
         # Scale by weights
         weights = weights.squeeze(1)
         Q = torch.einsum("bnij,bn->bij", Q_n, weights)
-        # NOTE: operations below are to improve optimization conditioning
+        # NOTE: operations below are to improve optimization conditioning for solver
         # remove constant offset
-        offsets = Q[:, 0, 0].clone()
-        Q[:, 0, 0] = torch.zeros(B).cuda()
-        # rescale
-        scales = torch.norm(Q, p="fro")
-        Q = Q / torch.norm(Q, p="fro")
+        # offsets = Q[:, 0, 0].clone()
+        # Q[:, 0, 0] = torch.zeros(B).cuda()
+        # offsets = None
+        # # rescale
+        # scales = torch.norm(Q, p="fro")
+        # Q = Q / torch.norm(Q, p="fro")
+        scales, offsets = None, None
         return Q, scales, offsets
 
     @staticmethod

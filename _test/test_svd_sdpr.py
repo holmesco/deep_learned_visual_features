@@ -191,10 +191,10 @@ class TestLocalize(unittest.TestCase):
         pipeline = Pipeline(config).cuda()
         # Load input data and network
         train_set, net = load_data_net(config)
-        images, disparities, ids, pose_se3, pose_log = train_set[0]
+        images, disparities, ids, pose_se3, pose_log = train_set[3]
         images = images[None, :, :, :]  # Add batch dimension
         disparities = disparities[None, :, :, :]
-        pose_se3 = pose_se3[None, :, :].double()
+        pose_se3 = pose_se3[None, :, :]
         pose_log = pose_log[None, :]
         # Run Pipeline
         losses, output_se3 = pipeline.forward(
@@ -202,7 +202,7 @@ class TestLocalize(unittest.TestCase):
         )
         # Check that output is close to ground truth
         output_se3 = output_se3.cpu()
-        pose_se3 = pose_se3.cpu()
+        pose_se3 = pose_se3.to(output_se3).cpu()
         diff = se3_log(output_se3.bmm(torch.inverse(pose_se3))).unsqueeze(2)
         print(diff)
 

@@ -78,8 +78,8 @@ class Pipeline(nn.Module):
         v_coord, u_coord = torch.meshgrid(
             [torch.arange(0, self.height), torch.arange(0, self.width)]
         )
-        v_coord = v_coord.reshape(self.height * self.width).double()  # HW
-        u_coord = u_coord.reshape(self.height * self.width).double()
+        v_coord = v_coord.reshape(self.height * self.width).float()  # HW
+        u_coord = u_coord.reshape(self.height * self.width).float()
         image_coords = torch.stack((u_coord, v_coord), dim=0)  # 2xHW
         self.register_buffer("image_coords", image_coords)
 
@@ -433,7 +433,7 @@ class Pipeline(nn.Module):
                     w[5] = loss_weights["rotation_heading"]
                     w = torch.diag(w).unsqueeze(0).expand(batch_size, 6, 6).cuda()
 
-                    T_trg_src_gt = pose_se3
+                    T_trg_src_gt = pose_se3.to(T_trg_src)
                     log_pose_err = se3_log(
                         T_trg_src.bmm(torch.inverse(T_trg_src_gt))
                     ).unsqueeze(2)

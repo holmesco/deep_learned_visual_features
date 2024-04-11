@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import pickle
+import random
 import sys
 import time
 
@@ -84,19 +85,24 @@ def execute_epoch(
             if mode == "training":
                 optimizer.zero_grad()
             with record_function("Run pipeline"):
-                try:
-                    # Compute the loss and the output pose.
+                # Compute the loss and the output pose.
+                if config["debug"]:
                     losses, output_se3 = pipeline.forward(
                         net, images, disparities, pose_se3, pose_log, epoch
                     )
+                else:  # If not in debug mode, catch exceptions and continue.
+                    try:
+                        losses, output_se3 = pipeline.forward(
+                            net, images, disparities, pose_se3, pose_log, epoch
+                        )
 
-                    if mode == "training":
-                        losses["total"].backward()
+                        if mode == "training":
+                            losses["total"].backward()
 
-                except Exception as e:
-                    print(e)
-                    print("Ids: {}".format(ids))
-                    continue
+                    except Exception as e:
+                        print(e)
+                        print("Ids: {}".format(ids))
+                        continue
 
             if mode == "training":
                 torch.nn.utils.clip_grad_norm(
@@ -261,6 +267,8 @@ def train(
                 "validation",
                 config,
                 dof,
+                None,
+                None,
                 std_out,
             )
 
@@ -294,12 +302,20 @@ def main(config, profiler_on=False, debug=False):
         config (dict): configurations for training the network.
     """
     if profiler_on or debug:
-        config["training"]["num_samples_train"] = 10
-        config["training"]["num_samples_valid"] = 10
+        config["training"]["num_samples_train"] = 100
+        config["training"]["num_samples_valid"] = 5
         config["training"]["max_epochs"] = 1
         config["training"]["start_pose_estimation"] = 0
-        config["experiment_name"] = config["experiment_name"] + "_profile"
-
+        config["experiment_name"] = config["experiment_name"] + "_prf_dbg"
+        config["dataset_name"] = "dataset_inthedark_small"
+        config["debug"] = True
+    elif "debug" not in config:
+        config["debug"] = False
+    # Set random seeds
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+    # Set up paths
     results_path = f"{config['home_path']}/results/{config['experiment_name']}/"
     checkpoints_path = f"{config['home_path']}/networks"
     data_path = f"{config['home_path']}/data"
@@ -319,7 +335,7 @@ def main(config, profiler_on=False, debug=False):
 
     # Print outputs to files
     orig_stdout = sys.stdout
-    if not profiler_on:
+    if not profiler_on and not config["debug"]:
         fl = open(f"{results_path}out_train.txt", "w")
         sys.stdout = fl
         orig_stderr = sys.stderr
@@ -337,6 +353,9 @@ def main(config, profiler_on=False, debug=False):
     num_samples_train = config["training"]["num_samples_train"]
     num_samples_valid = config["training"]["num_samples_valid"]
 
+    print(
+        f"Loading dataset from {dataset_path}",
+    )
     localization_data = None
     with open(dataset_path, "rb") as handle:
         localization_data = pickle.load(handle)
@@ -413,7 +432,9 @@ def main(config, profiler_on=False, debug=False):
                 for k, v in state.items():
                     if isinstance(v, torch.Tensor):
                         state[k] = v.cuda()
-        if profiler_on:  # restart epoch so that we can just run one epoch
+        if (
+            profiler_on or config["debug"]
+        ):  # restart epoch so that we can just run one epoch
             start_epoch = 0
         else:
             start_epoch = checkpoint["epoch"] + 1 if "epoch" in checkpoint.keys() else 0
@@ -460,7 +481,7 @@ def main(config, profiler_on=False, debug=False):
     else:
         train(*training_inputs)
 
-    if not profiler_on:
+    if not profiler_on and not config["debug"]:
         sys.stdout = orig_stdout
         fl.close()
         sys.stderr = orig_stderr

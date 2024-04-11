@@ -165,10 +165,15 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     cov_cam = torch.einsum("bnij,bnjk,bnkl->bnil", G, cov_pxl, G.transpose(-1, -2))
     # Mask invalid covariances with identity before inverting to avoid
     # numerical issues
-    valid_mat = valid.transpose(-1, -2)[:, :, :, None].expand(B, N, 3, 3)
+    valid_mask = valid.transpose(-1, -2)[:, :, :, None].expand(B, N, 3, 3)
     identity = torch.eye(3)[None, None, :, :].expand(B, N, -1, -1).cuda()
-    cov_cam[valid_mat == 0] = identity[valid_mat == 0]
+    cov_cam[valid_mask == 0] = identity[valid_mask == 0]
     # Invert to get weight matrices
     W = torch.cholesky_inverse(cov_cam)
+    W[valid_mask == 0] = 0.0
+    # Normalize the weight matrices via the average trace * N_features
+    batch_trace = torch.vmap(torch.vmap(torch.trace))
+    factor = torch.mean(batch_trace(W), dim=1)
+    W = W / factor[:, None, None, None]
 
     return W, cov_cam

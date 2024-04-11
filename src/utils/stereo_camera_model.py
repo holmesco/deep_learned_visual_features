@@ -110,7 +110,9 @@ class StereoCameraModel(nn.Module):
         Returns:
             valid_disparity (torch.tensor): True for valid disparity values, False otherwise.
         """
-        disp_min = (self.f * self.b) / 400.0  # Farthest point 400 m
+        # NOTE: This has been changed
+        # disp_min = (self.f * self.b) / 400.0  # Farthest point 400 m
+        disp_min = (self.f * self.b) / 30.0  # Farthest point 30 m
         disp_max = (self.f * self.b) / 0.1  # Closest point 0.1 m
 
         return (disparity >= disp_min) & (disparity <= disp_max)
