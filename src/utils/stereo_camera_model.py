@@ -8,7 +8,7 @@ class StereoCameraModel(nn.Module):
     The stereo camera model.
     """
 
-    def __init__(self, cu, cv, f, b):
+    def __init__(self, cu, cv, f, b, sigma=0.5):
         """
         Set up the stereo camera model with the stereo camera parameters.
 
@@ -24,7 +24,7 @@ class StereoCameraModel(nn.Module):
         self.cv = cv
         self.f = f
         self.b = b
-        self.sigma = 0.5
+        self.sigma = sigma
 
         # Matrices for camera model needed to projecting/reprojecting between the camera and image frames
         M, Q = self.set_camera_model_matrices(self.cu, self.cv, self.f, self.b)
@@ -112,7 +112,7 @@ class StereoCameraModel(nn.Module):
         """
         # NOTE: This has been changed
         # disp_min = (self.f * self.b) / 400.0  # Farthest point 400 m
-        disp_min = (self.f * self.b) / 30.0  # Farthest point 30 m
+        disp_min = (self.f * self.b) / 400.0  # Farthest point 30 m
         disp_max = (self.f * self.b) / 0.1  # Closest point 0.1 m
 
         return (disparity >= disp_min) & (disparity <= disp_max)

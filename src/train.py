@@ -150,6 +150,7 @@ def execute_epoch(
     if epoch >= config["training"]["start_pose_estimation"]:
 
         # RMSE for each pose DOF.
+
         errors[:, 3:6] = np.rad2deg(errors[:, 3:6])
         epoch_errors = np.sqrt(np.mean(errors**2, axis=0)).reshape(1, 6)
 
@@ -167,7 +168,7 @@ def execute_epoch(
 
     print(f"Epoch duration: {time.time() - start_time} seconds. \n")
 
-    # Run if we are training, and we are using a scheduler.
+    # Run if we are training, and we dare using a scheduler.
     if mode == "training":
         scheduler.step()
 
@@ -288,6 +289,19 @@ def train(
                 validation_stats,
                 epoch,
             )
+        else:
+            # Save the state in the first few rounds.
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": net.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "loss": validation_loss,
+                    "train_stats": train_stats,
+                    "valid_stats": validation_stats,
+                },
+                "{}_{}.pth".format(checkpoint_path, epoch),
+            )  # Add epoch so we don't overwrite existing file.
 
             # Stop the training loop if we have exceeded the patience.
             if stop:

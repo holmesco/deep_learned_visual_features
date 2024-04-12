@@ -233,9 +233,9 @@ def plot_matches(blocks: LearnedFeatureBlocks, im_1_fn, im_2_fn):
 if __name__ == "__main__":
 
     cuda = False
-    vgg16 = False
+    vgg16 = True
     if vgg16 == True:
-        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_svd_v2_23.pth"
+        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_vgg16_sdpr_5.pth"
     else:
         checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_multiseason_inthedark_layer16.pth"
     learned_feature_detector = LearnedFeatureBlocks(

@@ -215,9 +215,9 @@ class UNetVGG16(nn.Module):
         self.learn_detector = True
         bilinear = True
         if pretrained:
-            model = torchvision.models.vgg16(weights='DEFAULT')
+            model = torchvision.models.vgg16(weights="DEFAULT")
         else:
-            model = torchvision.models.vgg16(pretrained=False)  
+            model = torchvision.models.vgg16()
 
         self.layer1 = nn.Sequential(
             *list(model.features.children())[0:4]
@@ -248,6 +248,8 @@ class UNetVGG16(nn.Module):
             self.up3_score = Up(256 + 128, 128, bilinear, double=True)
             self.up4_score = Up(128 + 64, 64, bilinear, double=True)
             self.outc_score = OutConv(64, n_classes)
+            self.sigmoid = nn.Sigmoid()
+
         print(f"==> using UNETVGG16, pretrain:{pretrained}")
 
     def forward(self, x, learn_feature=True):
@@ -274,6 +276,7 @@ class UNetVGG16(nn.Module):
             x2_up_score = self.up3_score(x3_up_score, x2)
             x1_up_score = self.up4_score(x2_up_score, x1)
             score = self.outc_score(x1_up_score)
+            score = self.sigmoid(score)
         else:
             score = torch.ones(batch_size, 1, height, width).cuda()
 

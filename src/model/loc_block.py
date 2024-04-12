@@ -68,10 +68,10 @@ class LocBlock(nn.Module):
         # Set up solver parameters
         # solver_args = {
         #     "solve_method": "SCS",
-        #     "eps": 1e-7,
+        #     "eps": 1e-8,
         #     "normalize": True,
         #     "max_iters": 100000,
-        #     "verbose": True,
+        #     "verbose": False,
         # }
         solver_args = {
             "solve_method": "mosek",
@@ -96,6 +96,72 @@ class LocBlock(nn.Module):
         T_trg_src = se3_inv(T_s_v).bmm(T_trg_src).bmm(T_s_v)
 
         return T_trg_src
+
+    @staticmethod
+    def get_obj_matrix_vec(
+        keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
+    ):
+        """Compute the QCQP (Quadratically Constrained Quadratic Program) objective matrix
+        based on the given 3D keypoints from source and target frames, and their corresponding weights.
+        See matrix in Holmes et al: "On Semidefinite Relaxations for Matrix-Weighted
+        State-Estimation Problems in Robotics"
+
+         Args:
+            keypoints_3D_src (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
+                                             3D coordinates of keypoints in the source frame.
+                                             N_batch is the batch size and N is the number of keypoints.
+            keypoints_3D_trg (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
+                                             3D coordinates of keypoints in the target frame.
+                                             N_batch is the batch size and N is the number of keypoints.
+            weights (torch.Tensor): A tensor of shape (N_batch, 1, N) representing the weights
+                                    corresponding to each keypoint.
+            inv_cov_weights (torch.tensor, BxNx3x3): Inverse Covariance Matrices defined for each point.
+        Returns:
+            _type_: _description_
+        """
+        B = keypoints_3D_src.shape[0]  # Batch dimension
+        N = keypoints_3D_src.shape[2]  # Number of points
+        # Indices
+        h = 0
+        c = slice(1, 10)
+        t = slice(10, 13)
+        # relabel and dehomogenize
+        m = keypoints_3D_src[:, :3, :]
+        y = keypoints_3D_trg[:, :3, :]
+        Q_n = torch.zeros(B, N, 13, 13).cuda()
+        # world frame keypoint vector outer product
+        M = torch.einsum("bin,bjn->bnij", m, m)  # BxNx3x3
+        if inv_cov_weights is not None:
+            W = inv_cov_weights  # BxNx3x3
+        else:
+            # Weight with identity if no weights are provided
+            W = torch.eye(3, 3).cuda().expand(B, N, -1, -1)
+        # diagonal elements
+        Q_n[:, :, c, c] = kron(M, W)  # BxNx9x9
+        Q_n[:, :, t, t] = W  # BxNx3x3
+        Q_n[:, :, h, h] = torch.einsum("bin,bnij,bjn->bn", y, W, y)  # BxN
+        # Off Diagonals
+        m_ = m.transpose(-1, -2).unsqueeze(3)  # BxNx3x1
+        Wy = torch.einsum("bnij,bjn->bni", W, y).unsqueeze(3)  # BxNx3x1
+        Q_n[:, :, c, t] = -kron(m_, W)  # BxNx9x3
+        Q_n[:, :, t, c] = Q_n[:, :, c, t].transpose(-1, -2)  # BxNx3x9
+        Q_n[:, :, c, h] = -kron(m_, Wy).squeeze(-1)  # BxNx9
+        Q_n[:, :, h, c] = Q_n[:, :, c, h]  # BxNx9
+        Q_n[:, :, t, h] = Wy.squeeze(-1)  # BxNx3
+        Q_n[:, :, h, t] = Q_n[:, :, t, h]  # Bx3xN
+        # Scale by weights
+        weights = weights.squeeze(1)
+        Q = torch.einsum("bnij,bn->bij", Q_n, weights)
+        # NOTE: operations below are to improve optimization conditioning for solver
+        # remove constant offset
+        offsets = Q[:, 0, 0].clone()
+        Q[:, 0, 0] = torch.zeros(B).cuda()
+        offsets = None
+        # rescale
+        scales = torch.norm(Q, p="fro")
+        Q = Q / torch.norm(Q, p="fro")
+        scales, offsets = None, None
+        return Q, scales, offsets
 
     @staticmethod
     def get_obj_matrix(
@@ -167,72 +233,6 @@ class LocBlock(nn.Module):
             Q_batch += [Q]
 
         return torch.stack(Q_batch), scales, offsets
-
-    @staticmethod
-    def get_obj_matrix_vec(
-        keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
-    ):
-        """Compute the QCQP (Quadratically Constrained Quadratic Program) objective matrix
-        based on the given 3D keypoints from source and target frames, and their corresponding weights.
-        See matrix in Holmes et al: "On Semidefinite Relaxations for Matrix-Weighted
-        State-Estimation Problems in Robotics"
-
-         Args:
-            keypoints_3D_src (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
-                                             3D coordinates of keypoints in the source frame.
-                                             N_batch is the batch size and N is the number of keypoints.
-            keypoints_3D_trg (torch.Tensor): A tensor of shape (N_batch, 4, N) representing the
-                                             3D coordinates of keypoints in the target frame.
-                                             N_batch is the batch size and N is the number of keypoints.
-            weights (torch.Tensor): A tensor of shape (N_batch, 1, N) representing the weights
-                                    corresponding to each keypoint.
-            inv_cov_weights (torch.tensor, BxNx3x3): Inverse Covariance Matrices defined for each point.
-        Returns:
-            _type_: _description_
-        """
-        B = keypoints_3D_src.shape[0]  # Batch dimension
-        N = keypoints_3D_src.shape[2]  # Number of points
-        # Indices
-        h = 0
-        c = slice(1, 10)
-        t = slice(10, 13)
-        # relabel and dehomogenize
-        m = keypoints_3D_src[:, :3, :]
-        y = keypoints_3D_trg[:, :3, :]
-        Q_n = torch.zeros(B, N, 13, 13).cuda()
-        # world frame keypoint vector outer product
-        M = torch.einsum("bin,bjn->bnij", m, m)  # BxNx3x3
-        if inv_cov_weights is not None:
-            W = inv_cov_weights  # BxNx3x3
-        else:
-            # Weight with identity if no weights are provided
-            W = torch.eye(3, 3).cuda().expand(B, N, -1, -1)
-        # diagonal elements
-        Q_n[:, :, c, c] = kron(M, W)  # BxNx9x9
-        Q_n[:, :, t, t] = W  # BxNx3x3
-        Q_n[:, :, h, h] = torch.einsum("bin,bnij,bjn->bn", y, W, y)  # BxN
-        # Off Diagonals
-        m_ = m.transpose(-1, -2).unsqueeze(3)  # BxNx3x1
-        Wy = torch.einsum("bnij,bjn->bni", W, y).unsqueeze(3)  # BxNx3x1
-        Q_n[:, :, c, t] = -kron(m_, W)  # BxNx9x3
-        Q_n[:, :, t, c] = Q_n[:, :, c, t].transpose(-1, -2)  # BxNx3x9
-        Q_n[:, :, c, h] = -kron(m_, Wy).squeeze(-1)  # BxNx9
-        Q_n[:, :, h, c] = Q_n[:, :, c, h]  # BxNx9
-        Q_n[:, :, t, h] = Wy.squeeze(-1)  # BxNx3
-        Q_n[:, :, h, t] = Q_n[:, :, t, h]  # Bx3xN
-        # Scale by weights
-        weights = weights.squeeze(1)
-        Q = torch.einsum("bnij,bn->bij", Q_n, weights)
-        # NOTE: operations below are to improve optimization conditioning for solver
-        # remove constant offset
-        # offsets = Q[:, 0, 0].clone()
-        # Q[:, 0, 0] = torch.zeros(B).cuda()
-        # offsets = None
-        # # rescale
-        # scales = torch.norm(Q, p="fro")
-        # Q = Q / torch.norm(Q, p="fro")
-        scales, offsets = None, None
-        return Q, scales, offsets
 
     @staticmethod
     def gen_orthoganal_constraints():
@@ -312,6 +312,39 @@ class LocBlock(nn.Module):
             # Cycle column indicies
             i, j, k = j, k, i
         return constraints
+
+    @staticmethod
+    def plot_points(s_in, t_in, w_in):
+        """purely for debug"""
+        import matplotlib.pyplot as plt
+
+        s = s_in.cpu().detach().numpy()
+        t = t_in.cpu().detach().numpy()
+        w = w_in.cpu().detach().numpy()
+        plt.figure()
+        ax = plt.axes(projection="3d")
+        ax.scatter3D(
+            s[0, 0, :],
+            s[0, 1, :],
+            s[0, 2, :],
+            marker="*",
+            color="g",
+        )
+        ax.scatter3D(
+            t[0, 0, :],
+            t[0, 1, :],
+            t[0, 2, :],
+            marker="*",
+            color="b",
+        )
+        ax.scatter3D(
+            0.0,
+            0.0,
+            0.0,
+            marker="*",
+            color="r",
+        )
+        return ax
 
 
 def kron(A, B):
