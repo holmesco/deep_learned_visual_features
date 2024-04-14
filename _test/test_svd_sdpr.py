@@ -33,7 +33,8 @@ class TestLocalize(unittest.TestCase):
         # Default dtype
         torch.set_default_dtype(torch.float64)
         torch.autograd.set_detect_anomaly(True)
-
+        # Set seed
+        set_seed(0)
         # Define camera
         camera = st.Camera(
             f_u=484.5,
@@ -47,7 +48,7 @@ class TestLocalize(unittest.TestCase):
         batch_size = 1
         # Set up test problem
         r_p0s, C_p0s, r_ls = st.get_gt_setup(
-            N_map=30, N_batch=batch_size, traj_type="clusters"
+            N_map=50, N_batch=batch_size, traj_type="circle"
         )
         r_p0s = torch.tensor(r_p0s)
         C_p0s = torch.tensor(C_p0s)
@@ -81,29 +82,31 @@ class TestLocalize(unittest.TestCase):
             t.keypoints_3D_src.size(0), 1, t.keypoints_3D_src.size(2)
         ).cuda()
         t.stereo_cam = stereo_cam
+        # Frame tranform
+        t.T_s_v = torch.eye(4).cuda()
 
     def test_svd_forward(t):
         """Test that the SVD Block properly estimates the target transformation"""
 
         # Instantiate
-        svd_block = SVDBlock(torch.eye(4))
+        svd_block = SVDBlock(t.T_s_v)
         # Run forward with data
 
         T_trg_src = svd_block(t.keypoints_3D_src, t.keypoints_3D_trg, t.weights)
         # Check that
-        np.testing.assert_allclose(T_trg_src.numpy(), t.T_trg_src.numpy(), atol=1e-14)
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
 
     def test_sdpr_forward(t):
         """Test that the sdpr localization properly estimates the target
         transformation"""
 
         # Instantiate
-        loc_block = LocBlock(torch.eye(4))
+        loc_block = LocBlock(t.T_s_v)
         T_trg_src = loc_block(t.keypoints_3D_src, t.keypoints_3D_trg, t.weights)
         # Check that
-        np.testing.assert_allclose(
-            T_trg_src.cpu().numpy(), t.T_trg_src.numpy(), atol=1e-7
-        )
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
 
     def test_sdpr_mat_weight_cost(t):
         """Test that the sdpr localization properly estimates the target
@@ -114,7 +117,7 @@ class TestLocalize(unittest.TestCase):
             t.keypoints_3D_trg, valid, t.stereo_cam
         )
         # Instantiate
-        loc_block = LocBlock(torch.eye(4))
+        loc_block = LocBlock(t.T_s_v)
         Q, scales, offsets = loc_block.get_obj_matrix(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
         )
@@ -128,19 +131,19 @@ class TestLocalize(unittest.TestCase):
         """Test that the sdpr localization properly estimates the target
         transformation. Use matrix weights."""
         # Get matrix weights - assuming 0.5 pixel std dev
-        valid = t.weights
+        valid = t.weights > 0
         inv_cov_weights, cov = get_inv_cov_weights(
             t.keypoints_3D_trg, valid, t.stereo_cam
         )
+
         # Instantiate
-        loc_block = LocBlock(torch.eye(4))
+        loc_block = LocBlock(t.T_s_v)
         T_trg_src = loc_block(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
         )
-        # Check that
-        np.testing.assert_allclose(
-            T_trg_src.cpu().numpy(), t.T_trg_src.numpy(), atol=1e-7
-        )
+
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
 
     def test_inv_cov_numerical(self):
         N_pts = 1000
@@ -218,7 +221,7 @@ class TestLocalize(unittest.TestCase):
 
         matplotlib.use("TkAgg")
 
-        valid = t.weights
+        valid = t.weights > 0
         # test "valid" masking
         valid[0, 0, 0] = torch.tensor(0)
         W, cov_cam = get_inv_cov_weights(t.keypoints_3D_trg, valid, t.stereo_cam)
@@ -255,93 +258,10 @@ class TestLocalize(unittest.TestCase):
 
         plt.show()
 
-    def test_compare_pipelines(t):
-        """Test that the SVD and SDPR pipelines produce similar results"""
-        # Run pipeline
-        idx_data = 1
-        pose_svd, pose_gt = t.run_pipeline("svd", False, idx_data=idx_data)
-        pose_sdpr, _ = t.run_pipeline("sdpr", False, idx_data=idx_data)
-        pose_sdpr_mw, _ = t.run_pipeline("sdpr", True, idx_data=idx_data)
-
-        # Print poses
-        torch.set_printoptions(sci_mode=True)
-        print("POSES:")
-        print("Ground truth pose:"), print(pose_gt)
-        print("SVD pose:"), print(pose_svd)
-        print("SDPR (scalar) pose:"), print(pose_sdpr)
-        print("SDPR (matrix) pose:"), print(pose_sdpr_mw)
-
-        pose_gt = pose_gt.to(pose_svd)
-        diff_svd = se3_log(pose_svd.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        diff_sdpr = se3_log(pose_sdpr.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        diff_sdpr_mw = se3_log(pose_sdpr_mw.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        # Print log diffs
-        print("LOG DIFF POSE:")
-        print("SVD pose:"), print(diff_svd)
-        print("SDPR (scalar) pose:"), print(diff_sdpr)
-        print("SDPR (matrix) pose:"), print(diff_sdpr_mw)
-
-    def run_pipeline(t, localization, mat_weights, idx_data=24):
-        """Test the pipeline on inputs from the training set"""
-        # Load JSON config
-        config = json.load(open("./_test/config.json"))
-        config["pipeline"]["localization"] = localization
-        config["pipeline"]["use_inv_cov_weights"] = mat_weights
-        config["training"]["start_pose_estimation"] = 0
-        # Instantiate pipeline
-        pipeline = Pipeline(config).cuda()
-        # Load input data and network
-        train_set, net = load_data_net(config)
-        images, disparities, ids, pose_se3, pose_log = train_set[idx_data]
-        images = images[None, :, :, :]  # Add batch dimension
-        disparities = disparities[None, :, :, :]
-        pose_se3 = pose_se3[None, :, :]
-        pose_log = pose_log[None, :]
-        # Run Pipeline
-        losses, output_se3 = pipeline.forward(
-            net, images, disparities, pose_se3, pose_log, 0
-        )
-        # Check that output is close to ground truth
-        output_se3 = output_se3.cpu()
-
-        return output_se3, pose_se3
-
-
-def load_data_net(config):
-    data_path = f"{config['home_path']}/data"
-    datasets_path = f"{config['home_path']}/datasets"
-    dataset_name = config["dataset_name"]
-    dataset_path = f"{datasets_path}/{dataset_name}.pickle"
-
-    # Load the data.
-    dataset_params = config["dataset"]
-    dataset_params["data_dir"] = data_path
-
-    localization_data = None
-    with open(dataset_path, "rb") as handle:
-        localization_data = pickle.load(handle)
-
-    # Training data generator (randomly sample a subset of the full dataset for each epoch).
-    train_set = Dataset(**dataset_params)
-    train_set.load_mel_data(localization_data, "training")
-    # Load network
-    net = UNet(
-        config["network"]["num_channels"],
-        config["network"]["num_classes"],
-        config["network"]["layer_size"],
-    )
-    checkpoints_path = f"{config['home_path']}/networks"
-    checkpoint_name = config["checkpoint_name"]
-    checkpoint_path = f"{checkpoints_path}/{checkpoint_name}"
-    checkpoint = torch.load(f"{checkpoint_path}.pth")
-    net.load_state_dict(checkpoint["model_state_dict"])
-    net.cuda()
-
-    return train_set, net
-
 
 if __name__ == "__main__":
     t = TestLocalize()
     # t.test_sdpr_mat_weight_forward()
+    # t.test_sdpr_forward()
+    t.test_svd_forward()
     # t.test_inv_cov_weights()
-    t.test_compare_pipelines()

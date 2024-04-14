@@ -221,7 +221,7 @@ def plot_matches(blocks: LearnedFeatureBlocks, im_1_fn, im_2_fn):
         kp1_cv,
         im2_cv,
         kp2_cv,
-        matches[:50],
+        matches[:200],
         None,
         flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
     )
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     cuda = False
     vgg16 = True
     if vgg16 == True:
-        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_vgg16_sdpr_5.pth"
+        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_vgg16_sdpr_4_debug_mw_nograd.pth"
     else:
         checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_multiseason_inthedark_layer16.pth"
     learned_feature_detector = LearnedFeatureBlocks(
@@ -250,8 +250,8 @@ if __name__ == "__main__":
         vgg16=vgg16,
     )
 
-    # Image paths
-    im_1_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000001/images/left/000002.png"
-    im_2_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000007/images/left/000002.png"
+    # Image paths - ID inthedark-27-2182-8-1886
+    im_1_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000027/images/left/002182.png"
+    im_2_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000008/images/left/001886.png"
 
     plot_matches(learned_feature_detector, im_1_fn, im_2_fn)

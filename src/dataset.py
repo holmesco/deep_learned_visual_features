@@ -114,7 +114,10 @@ class Dataset(data.Dataset):
         """
 
         # Select sample
-        sample_id = self.list_ids[index]
+        if isinstance(index, str):
+            sample_id = index
+        else:
+            sample_id = self.list_ids[index]
 
         # Get the path name, run id, and pose id for the sample. Combining the run and pose id gives us the id of
         # a given vertex in the pose graph that the data was sampled from.

@@ -348,12 +348,13 @@ class Pipeline(nn.Module):
                         "use_inv_cov_weights" in self.config["pipeline"]
                         and self.config["pipeline"]["use_inv_cov_weights"]
                     ):
-                        with record_function("Inverse covariance weights"):
-                            inv_cov_weights, cov = get_inv_cov_weights(
-                                kpt_3D=kpt_3D_pseudo,
-                                valid=valid,
-                                stereo_cam=self.stereo_cam,
-                            )
+                        inv_cov_weights, cov = get_inv_cov_weights(
+                            kpt_3D=kpt_3D_pseudo,
+                            valid=valid,
+                            stereo_cam=self.stereo_cam,
+                        )
+                        # Detach weights so that they don't mess with the gradient computation
+                        inv_cov_weights = inv_cov_weights.detach()
                     else:
                         inv_cov_weights = None
                     T_trg_src = self.loc_block(

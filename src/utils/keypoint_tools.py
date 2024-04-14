@@ -139,19 +139,22 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     N = kpt_3D.size(2)  # Number of keypoints
     # Covariance matrix in pixel space for left camera coordinates and disparity
     sigma = torch.tensor(stereo_cam.sigma)
-    cov_pxl = torch.tensor(
-        [
-            [sigma**2, 0, sigma**2],
-            [0, sigma**2, 0],
-            [sigma**2, 0, 2 * sigma**2],
-        ]
+    cov_pxl = (
+        torch.tensor(
+            [
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 0.0],
+                [1.0, 0.0, 2.0],
+            ]
+        )
+        * sigma**2
     )
     # Define linearized covariance transformation matrix
     x, y, z = kpt_3D[:, 0, :], kpt_3D[:, 1, :], kpt_3D[:, 2, :]
     f = torch.tensor(stereo_cam.f).cuda()
     b = torch.tensor(stereo_cam.b).cuda()
     zero = torch.zeros(B, N).cuda()
-
+    # Linearized mapping from [u,v,d] to [x,y,z]
     G = torch.stack(
         [
             torch.stack([z / f, zero, -x * z / f / b], dim=2),
@@ -162,7 +165,7 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     )
     # Compute covariance in camera frame
     cov_pxl = cov_pxl[None, None, :, :].expand(B, N, 3, 3).cuda()
-    cov_cam = torch.einsum("bnij,bnjk,bnkl->bnil", G, cov_pxl, G.transpose(-1, -2))
+    cov_cam = torch.einsum("bnij,bnjk,bnlk->bnil", G, cov_pxl, G)
     # Mask invalid covariances with identity before inverting to avoid
     # numerical issues
     valid_mask = valid.transpose(-1, -2)[:, :, :, None].expand(B, N, 3, 3)

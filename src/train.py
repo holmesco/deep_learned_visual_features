@@ -101,7 +101,7 @@ def execute_epoch(
 
                 except Exception as e:
                     print(e)
-                    print("Ids: {}".format(ids))
+                    print(f"Ids: {ids}, at Iter {num_examples}")
                     continue
 
             if mode == "training":
@@ -289,6 +289,10 @@ def train(
                 validation_stats,
                 epoch,
             )
+
+            # Stop the training loop if we have exceeded the patience.
+            if stop:
+                break
         else:
             # Save the state in the first few rounds.
             torch.save(
@@ -302,10 +306,7 @@ def train(
                 },
                 "{}_{}.pth".format(checkpoint_path, epoch),
             )  # Add epoch so we don't overwrite existing file.
-
-            # Stop the training loop if we have exceeded the patience.
-            if stop:
-                break
+            print(f"Saved checkpoint for epoch {epoch} prior to pose estimation.")
 
 
 def main(config, profiler_on=False, debug=False):
@@ -316,12 +317,12 @@ def main(config, profiler_on=False, debug=False):
         config (dict): configurations for training the network.
     """
     if profiler_on or debug:
-        config["training"]["num_samples_train"] = 100
-        config["training"]["num_samples_valid"] = 5
+        # config["training"]["num_samples_train"] = 100
+        # config["training"]["num_samples_valid"] = 5
         config["training"]["max_epochs"] = 1
         config["training"]["start_pose_estimation"] = 0
         config["experiment_name"] = config["experiment_name"] + "_prf_dbg"
-        config["dataset_name"] = "dataset_inthedark_small"
+        # config["dataset_name"] = "dataset_inthedark_small"
         config["debug"] = True
     elif "debug" not in config:
         config["debug"] = False

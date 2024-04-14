@@ -1,0 +1,84 @@
+{
+    "home_path": "/home/cho/projects/deep_learned_visual_features",
+    "experiment_name": "train_vgg16_sdpr",
+    "dataset_name": "dataset_inthedark",
+    "cuda_device": 0,
+    "checkpoint_name": "network_vgg16_sdpr",
+    "training": {
+        "start_pose_estimation": 10,
+        "max_epochs": 50,
+        "patience": 50,
+        "num_samples_train": 10000,
+        "num_samples_valid": 2500
+    },
+    "network": {
+        "type": "unet_vgg16",
+        "pretrained": true,
+        "num_channels": 3,
+        "num_classes": 1,
+        "layer_size": 16
+    },
+    "pipeline": {
+        "window_h": 16,
+        "window_w": 16,
+        "dense_matching": true,
+        "localization": "sdpr",
+        "use_inv_cov_weights": true
+    },
+    "outlier_rejection": {
+        "on": true,
+        "type": "ground_truth",
+        "dim": [
+            "plane"
+        ],
+        "inlier_threshold": 0.6,
+        "error_tolerance": {
+            "3D": 4.0,
+            "2D": 50.0,
+            "plane": 3.0
+        },
+        "num_iterations": 15
+    },
+    "data_loader": {
+        "batch_size": 1,
+        "num_workers": 4,
+        "shuffle": false
+    },
+    "stereo": {
+        "cu": 257.446,
+        "cv": 197.718,
+        "f": 387.777,
+        "b": 0.239965
+    },
+    "dataset": {
+        "height": 384,
+        "width": 512,
+        "use_normalization": false,
+        "use_disparity": true
+    },
+    "optimizer": {
+        "type": "Adam",
+        "lr": 0.0001
+    },
+    "scheduler": {
+        "type": "StepLR",
+        "step_size": 50,
+        "gamma": 1.0
+    },
+    "loss": {
+        "types": [
+            "pose_plane",
+            "keypoint_plane"
+        ],
+        "weights": {
+            "translation": 1.0,
+            "rotation": 10.0,
+            "translation_x": 1.0,
+            "translation_y": 50.0,
+            "rotation_heading": 10.0,
+            "keypoint_2D": 0.01,
+            "keypoint_3D": 1.0,
+            "keypoint_plane": 2.5
+        }
+    }
+}
