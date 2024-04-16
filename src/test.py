@@ -11,6 +11,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+import tqdm
 from torch.utils import data
 from torch.utils.data.sampler import RandomSampler
 
@@ -64,7 +65,7 @@ def rmse(outputs_se3, targets_se3):
         print(f"RMSE, live_run_id {live_run_id}, rotation: {rmse_rot}\n")
 
 
-def test_model(pipeline, net, data_loader, dof):
+def test_model(pipeline, net, data_loader, dof, std_out):
     """
     Run the test.
 
@@ -90,8 +91,8 @@ def test_model(pipeline, net, data_loader, dof):
     num_batches, num_examples = 0, 0
 
     with torch.no_grad():
-        for images, disparities, ids, pose_se3, pose_log in data_loader:
-
+        for i, data in enumerate(tqdm(data_loader, file=std_out)):
+            images, disparities, ids, pose_se3, pose_log = data
             batch_size = images.size(0)
 
             try:
@@ -169,7 +170,7 @@ def test_model(pipeline, net, data_loader, dof):
     return stats
 
 
-def test(pipeline, net, test_loaders, results_path):
+def test(pipeline, net, test_loaders, results_path, std_out):
     """
     Test the model by localizing different runs to each other from one or more paths. Print the pose errors and
     losses and plot the target and estimated poses for each DOF for each test.
@@ -200,7 +201,9 @@ def test(pipeline, net, test_loaders, results_path):
         # Loop over each data loader (one data loader per map run we localize to).
         for i in range(len(test_loaders[path_name])):
 
-            path_stats = test_model(pipeline, net, test_loaders[path_name][i], dof)
+            path_stats = test_model(
+                pipeline, net, test_loaders[path_name][i], dof, std_out
+            )
 
             outputs_log = path_stats.get_outputs_log()
             targets_log = path_stats.get_targets_log()
@@ -315,7 +318,7 @@ def main(config):
 
     net.cuda()
 
-    test(testing_pipeline, net, path_loaders, results_path)
+    test(testing_pipeline, net, path_loaders, results_path, orig_stdout)
 
     # Stop writing outputs to file.
     sys.stdout = orig_stdout

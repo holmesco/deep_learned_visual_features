@@ -15,6 +15,7 @@ from torchvision import transforms
 from src.dataset import Dataset
 from src.model.pipeline import Pipeline
 from src.model.unet import UNet, UNetVGG16
+from src.utils.lie_algebra import se3_log
 
 
 def set_seed(x):
@@ -47,11 +48,12 @@ class TestPipeline:
         t.net = t.load_net(t.config)
         print("...Done!")
 
-    def run_pipeline(t, localization, mat_weights, idx_data=24):
+    def run_pipeline(t, idx_data=24):
         """Test the pipeline on inputs from the training set"""
-        # Alter config
-        t.config["pipeline"]["localization"] = localization
-        t.config["pipeline"]["use_inv_cov_weights"] = mat_weights
+        localization = t.config["pipeline"]["localization"]
+        print(f"Running {localization} pipeline on id {idx_data}")
+        if t.config["pipeline"]["use_inv_cov_weights"]:
+            print("Using inverse covariance weights")
         # Instantiate pipeline
         pipeline = Pipeline(t.config).cuda()
         # Load image data
@@ -61,12 +63,13 @@ class TestPipeline:
         pose_se3 = pose_se3[None, :, :]
         pose_log = pose_log[None, :]
         # Run Pipeline
-        output_se3, saved_data = pipeline.forward(
-            t.net, images, disparities, pose_se3, pose_log, 0, test=True
-        )
-        # Check that output is close to ground truth
-        diff = output_se3.inverse().bmm(pose_se3)
-        diff.cpu()
+        with torch.no_grad():
+            output_se3, saved_data = pipeline.forward(
+                t.net, images, disparities, pose_se3, pose_log, 0, test=True
+            )
+            # Check that output is close to ground truth
+            output_se3 = output_se3.cpu().float()
+            diff = se3_log(output_se3.bmm(pose_se3.inverse()))
 
         return diff
 
@@ -140,7 +143,5 @@ if __name__ == "__main__":
         "inthedark-27-2182-8-1886",
     ]
     # Instantiate
-    t = TestPipeline("./_test/config.json", sample_ids=sample_ids)
-    t.run_pipeline(
-        localization="svd", mat_weights=True, idx_data="inthedark-21-2057-27-1830"
-    )
+    t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
+    t.run_pipeline(idx_data="inthedark-1-15-19-16")

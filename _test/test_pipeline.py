@@ -22,7 +22,7 @@ def set_seed(x):
 
 
 class TestPipeline(unittest.TestCase):
-    def __init__(t, config, *args, **kwargs):
+    def __init__(t, config, *args, sample_ids=None, **kwargs):
         super(TestPipeline, t).__init__(*args, **kwargs)
         # Default dtype
         torch.set_default_dtype(torch.float64)
@@ -34,19 +34,37 @@ class TestPipeline(unittest.TestCase):
         t.config["training"]["start_pose_estimation"] = 0
         # Load dataset
         print("Loading data...")
-        t.dataset = t.load_data(t.config)
+        if sample_ids is not None:
+            data_dir = f"{t.config['home_path']}/data"
+            t.dataset = Dataset(data_dir=data_dir)
+            t.dataset.get_data_from_ids(sample_ids=sample_ids)
+        else:
+            t.dataset = t.load_data(t.config)
         print("...Done!")
         # Load  network
         print("Loading network...")
         t.net = t.load_net(t.config)
         print("...Done!")
 
+    def test_ransac(t, idx_data=0):
+        """Test the RANSAC block in the pipeline with inverse covariance weights"""
+
+        # Set up ransac parameters
+        t.config["outlier_rejection"]["on"] = True
+        t.config["outlier_rejection"]["type"] = "ransac"
+        t.config["outlier_rejection"]["dim"] = "3D"
+        with torch.no_grad():
+            pose, pose_gt, saved_data = t.run_pipeline(idx_data=idx_data)
+
+        diff = se3_log(pose.bmm(torch.inverse(pose_gt))).unsqueeze(2)
+        print(diff)
+
     def test_compare_pipelines(t, idx_data=1):
         """Test that the SVD and SDPR pipelines produce similar results"""
         # Run pipeline
         with torch.no_grad():
-            pose_sdpr_mw, _ = t.run_pipeline("sdpr", True, idx_data=idx_data)
             pose_svd, pose_gt = t.run_pipeline("svd", False, idx_data=idx_data)
+            pose_sdpr_mw, _ = t.run_pipeline("sdpr", True, idx_data=idx_data)
             pose_sdpr, _ = t.run_pipeline("sdpr", False, idx_data=idx_data)
 
         # Print poses
@@ -76,11 +94,9 @@ class TestPipeline(unittest.TestCase):
         )
         print(diff_sdpr_mw)
 
-    def run_pipeline(t, localization, mat_weights, idx_data=24):
+    def run_pipeline(t, idx_data=0, test=True):
         """Test the pipeline on inputs from the training set"""
-        # Alter config
-        t.config["pipeline"]["localization"] = localization
-        t.config["pipeline"]["use_inv_cov_weights"] = mat_weights
+
         # Instantiate pipeline
         pipeline = Pipeline(t.config).cuda()
         # Load image data
@@ -90,13 +106,13 @@ class TestPipeline(unittest.TestCase):
         pose_se3 = pose_se3[None, :, :]
         pose_log = pose_log[None, :]
         # Run Pipeline
-        losses, output_se3 = pipeline.forward(
-            t.net, images, disparities, pose_se3, pose_log, 0
+        output_se3, saved_data = pipeline.forward(
+            t.net, images, disparities, pose_se3, pose_log, 0, test=test
         )
         # Check that output is close to ground truth
-        output_se3 = output_se3.cpu()
+        output_se3 = output_se3.cpu().float()
 
-        return output_se3, pose_se3
+        return output_se3, pose_se3, saved_data
 
     @staticmethod
     def load_data(config):
@@ -146,9 +162,13 @@ class TestPipeline(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    # New Network
-    # t = TestPipeline("./_test/config_vgg16.json")
-    # Mona's Network
-    t = TestPipeline("./_test/config.json")
-    # Lens flare:
-    t.test_compare_pipelines(4)
+    # get sample ids
+    sample_ids = [
+        "inthedark-21-2057-27-1830",
+        "inthedark-1-15-19-16",
+        "inthedark-27-2182-8-1886",
+    ]
+    # config_file = "./_test/config_vgg16.json"
+    config_file = "./_test/config.json"
+    t = TestPipeline(config_file, sample_ids=sample_ids)
+    t.test_ransac(idx_data="inthedark-1-15-19-16")

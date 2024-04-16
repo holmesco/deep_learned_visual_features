@@ -207,13 +207,29 @@ class Pipeline(nn.Module):
                 kpt_scores_src,
                 kpt_scores_pseudo,
             )
+            # Find the inliers either by using the ground truth pose (training) or RANSAC (inference).
+            valid_inliers = torch.ones(kpt_valid_src.size()).type_as(kpt_valid_src)
+
+            # Compute inverse covariance weightings
+            # NOTE: Assume that all of the variation is lumped on the pseudo targets
+            if (
+                "use_inv_cov_weights" in self.config["pipeline"]
+                and self.config["pipeline"]["use_inv_cov_weights"]
+            ):
+                inv_cov_weights, cov = get_inv_cov_weights(
+                    kpt_3D=kpt_3D_pseudo,
+                    valid=valid_inliers,
+                    stereo_cam=self.stereo_cam,
+                )
+                # Detach weights so that they don't mess with the gradient computation
+                inv_cov_weights = inv_cov_weights.detach()
+            else:
+                inv_cov_weights = None
 
         ################################################################################################################
         # Outlier rejection
         ################################################################################################################
         with record_function("Outlier rejection"):
-            # Find the inliers either by using the ground truth pose (training) or RANSAC (inference).
-            valid_inliers = torch.ones(kpt_valid_src.size()).type_as(kpt_valid_src)
 
             if self.config["outlier_rejection"]["on"] and (
                 self.config["outlier_rejection"]["type"] == "ground_truth"
@@ -319,6 +335,7 @@ class Pipeline(nn.Module):
                     kpt_valid_pseudo,
                     weights,
                     self.config["outlier_rejection"]["dim"][0],
+                    inv_cov_weights,
                 )
 
                 valid_inliers = ransac_inliers.unsqueeze(1)
@@ -342,21 +359,6 @@ class Pipeline(nn.Module):
                 if self.config["pipeline"]["localization"] == "svd":
                     T_trg_src = self.svd_block(kpt_3D_src, kpt_3D_pseudo, weights)
                 elif self.config["pipeline"]["localization"] == "sdpr":
-                    # Compute inverse covariance weightings
-                    # NOTE: Assume that all of the variation is lumped on the pseudo targets
-                    if (
-                        "use_inv_cov_weights" in self.config["pipeline"]
-                        and self.config["pipeline"]["use_inv_cov_weights"]
-                    ):
-                        inv_cov_weights, cov = get_inv_cov_weights(
-                            kpt_3D=kpt_3D_pseudo,
-                            valid=valid,
-                            stereo_cam=self.stereo_cam,
-                        )
-                        # Detach weights so that they don't mess with the gradient computation
-                        inv_cov_weights = inv_cov_weights.detach()
-                    else:
-                        inv_cov_weights = None
                     T_trg_src = self.loc_block(
                         kpt_3D_src, kpt_3D_pseudo, weights, inv_cov_weights
                     )

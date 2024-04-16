@@ -3,7 +3,7 @@
     "experiment_name": "unittest_pipeline",
     "dataset_name": "dataset_inthedark_small",
     "cuda_device": 0,
-    "checkpoint_name": "network_vgg16_sdpr_10",
+    "checkpoint_name": "network_vgg16_sdpr",
     "training": {
         "start_pose_estimation": 0,
         "max_epochs": 50,
@@ -22,7 +22,8 @@
         "window_h": 16,
         "window_w": 16,
         "dense_matching": true,
-        "localization": "svd"
+        "localization": "sdpr",
+        "use_inv_cov_weights": true
     },
     "outlier_rejection": {
         "on": true,

@@ -109,7 +109,7 @@ def build_dataset_from_ids(data_path, sample_ids):
     for sample_id in sample_ids:
         # Retrieve information from id
         sample_info = sample_id.split("-")
-        path_name, map_run_id, map_frm_id, live_run_id, live_frm_id = sample_info
+        path_name, live_run_id, live_frm_id, map_run_id, map_frm_id = sample_info
         map_frm_id = int(map_frm_id)
         live_frm_id = int(live_frm_id)
         map_run_id = int(map_run_id)

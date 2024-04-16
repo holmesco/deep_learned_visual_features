@@ -85,12 +85,7 @@ def execute_epoch(
             if mode == "training":
                 optimizer.zero_grad()
             with record_function("Run pipeline"):
-                # Compute the loss and the output pose.
-                # if config["debug"]:
-                #     losses, output_se3 = pipeline.forward(
-                #         net, images, disparities, pose_se3, pose_log, epoch
-                #     )
-                # else:  # If not in debug mode, catch exceptions and continue.
+
                 try:
                     losses, output_se3 = pipeline.forward(
                         net, images, disparities, pose_se3, pose_log, epoch
