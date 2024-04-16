@@ -230,12 +230,21 @@ def plot_matches(blocks: LearnedFeatureBlocks, im_1_fn, im_2_fn):
     plt.show()
 
 
+def get_img_names(id="inthedark-27-2182-8-1886"):
+
+    dataset, run1, frame1, run2, frame2 = id.split("-")
+    im_1_fn = f"/home/cho/projects/deep_learned_visual_features/data/{dataset}/run_{run1.zfill(6)}/images/left/{frame1.zfill(6)}.png"
+    im_2_fn = f"/home/cho/projects/deep_learned_visual_features/data/{dataset}/run_{run2.zfill(6)}/images/left/{frame2.zfill(6)}.png"
+
+    return im_1_fn, im_2_fn
+
+
 if __name__ == "__main__":
 
     cuda = False
     vgg16 = True
     if vgg16 == True:
-        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_vgg16_sdpr_4_debug_mw_nograd.pth"
+        checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_vgg16_sdpr_33.pth"
     else:
         checkpoint = "/home/cho/projects/deep_learned_visual_features/networks/network_multiseason_inthedark_layer16.pth"
     learned_feature_detector = LearnedFeatureBlocks(
@@ -250,8 +259,9 @@ if __name__ == "__main__":
         vgg16=vgg16,
     )
 
-    # Image paths - ID inthedark-27-2182-8-1886
-    im_1_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000027/images/left/002182.png"
-    im_2_fn = "/home/cho/projects/deep_learned_visual_features/data/inthedark/run_000008/images/left/001886.png"
+    # Image paths - lens flare
+    # id = 'inthedark-27-2182-8-1886'
+    # Day-night
+    id = "inthedark-1-15-19-16"
 
-    plot_matches(learned_feature_detector, im_1_fn, im_2_fn)
+    plot_matches(learned_feature_detector, *get_img_names(id))

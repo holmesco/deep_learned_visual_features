@@ -9,6 +9,8 @@ from PIL import Image
 from torch.utils import data
 from torchvision import transforms
 
+from data.build_datasets import build_dataset_from_ids
+
 
 class Dataset(data.Dataset):
     """
@@ -48,6 +50,20 @@ class Dataset(data.Dataset):
         self.image_transforms = transforms.Compose([transforms.ToTensor()])
 
         self.normalize_transforms = None
+
+    def get_data_from_ids(self, sample_ids):
+        """get data from a list of ids
+
+        Args:
+            data_path (str): path to data
+            sample_ids (list[str]): list of sample ids
+        """
+
+        labels_se3, labels_log = build_dataset_from_ids(self.data_dir, sample_ids)
+
+        self.list_ids = sample_ids
+        self.labels_log = labels_log
+        self.labels_se3 = labels_se3
 
     def load_mel_data(self, mel_data, mode, path_name="", index=None):
         """

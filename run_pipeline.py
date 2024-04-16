@@ -1,19 +1,20 @@
 import json
+import os
 import pickle
 import sys
-import unittest
 
 import cv2 as cv
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import sdprlayer.stereo_tuner as st
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from PIL import Image
+from torchvision import transforms
 
 from src.dataset import Dataset
 from src.model.pipeline import Pipeline
 from src.model.unet import UNet, UNetVGG16
-from src.utils.lie_algebra import se3_log
 
 
 def set_seed(x):
@@ -21,9 +22,9 @@ def set_seed(x):
     torch.manual_seed(x)
 
 
-class TestPipeline(unittest.TestCase):
-    def __init__(t, config, *args, **kwargs):
-        super(TestPipeline, t).__init__(*args, **kwargs)
+class TestPipeline:
+    def __init__(t, config, sample_ids=None):
+
         # Default dtype
         torch.set_default_dtype(torch.float64)
         torch.autograd.set_detect_anomaly(True)
@@ -34,47 +35,17 @@ class TestPipeline(unittest.TestCase):
         t.config["training"]["start_pose_estimation"] = 0
         # Load dataset
         print("Loading data...")
-        t.dataset = t.load_data(t.config)
+        if sample_ids is not None:
+            data_dir = f"{t.config['home_path']}/data"
+            t.dataset = Dataset(data_dir=data_dir)
+            t.dataset.get_data_from_ids(sample_ids=sample_ids)
+        else:
+            t.dataset = t.load_data(t.config)
         print("...Done!")
         # Load  network
         print("Loading network...")
         t.net = t.load_net(t.config)
         print("...Done!")
-
-    def test_compare_pipelines(t, idx_data=1):
-        """Test that the SVD and SDPR pipelines produce similar results"""
-        # Run pipeline
-        with torch.no_grad():
-            pose_sdpr_mw, _ = t.run_pipeline("sdpr", True, idx_data=idx_data)
-            pose_svd, pose_gt = t.run_pipeline("svd", False, idx_data=idx_data)
-            pose_sdpr, _ = t.run_pipeline("sdpr", False, idx_data=idx_data)
-
-        # Print poses
-        torch.set_printoptions(sci_mode=True)
-        print("POSES:")
-        print("Ground truth pose:"), print(pose_gt)
-        print("SVD pose:"), print(pose_svd)
-        print("SDPR (scalar) pose:"), print(pose_sdpr)
-        print("SDPR (matrix) pose:"), print(pose_sdpr_mw)
-
-        pose_gt = pose_gt.to(pose_svd)
-        diff_svd = se3_log(pose_svd.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        diff_sdpr = se3_log(pose_sdpr.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        diff_sdpr_mw = se3_log(pose_sdpr_mw.bmm(torch.inverse(pose_gt))).unsqueeze(2)
-        # Print log diffs
-        print("LOG DIFF POSE:")
-        print(
-            f"SVD: norm trans: {torch.norm(diff_svd[0,:3,0])}, norm rot: {torch.norm(diff_svd[0,3:,0])}"
-        )
-        print(diff_svd)
-        print(
-            f"SDPR (scalar): norm trans: {torch.norm(diff_sdpr[0,:3,0])}, norm rot: {torch.norm(diff_sdpr[0,3:,0])}"
-        )
-        print(diff_sdpr)
-        print(
-            f"SDPR (matrix): norm trans: {torch.norm(diff_sdpr_mw[0,:3,0])}, norm rot: {torch.norm(diff_sdpr_mw[0,3:,0])}"
-        )
-        print(diff_sdpr_mw)
 
     def run_pipeline(t, localization, mat_weights, idx_data=24):
         """Test the pipeline on inputs from the training set"""
@@ -90,13 +61,28 @@ class TestPipeline(unittest.TestCase):
         pose_se3 = pose_se3[None, :, :]
         pose_log = pose_log[None, :]
         # Run Pipeline
-        losses, output_se3 = pipeline.forward(
-            t.net, images, disparities, pose_se3, pose_log, 0
+        output_se3, saved_data = pipeline.forward(
+            t.net, images, disparities, pose_se3, pose_log, 0, test=True
         )
         # Check that output is close to ground truth
-        output_se3 = output_se3.cpu()
+        diff = output_se3.inverse().bmm(pose_se3)
+        diff.cpu()
 
-        return output_se3, pose_se3
+        return diff
+
+    @staticmethod
+    def get_imgs(id="inthedark-27-2182-8-1886"):
+
+        dataset, run1, frame1, run2, frame2 = id.split("-")
+        im_1_fn = f"/home/cho/projects/deep_learned_visual_features/data/{dataset}/run_{run1.zfill(6)}/images/left/{frame1.zfill(6)}.png"
+        im_2_fn = f"/home/cho/projects/deep_learned_visual_features/data/{dataset}/run_{run2.zfill(6)}/images/left/{frame2.zfill(6)}.png"
+        # Import to open cv
+        img_1 = np.uint8(cv.imread(im_1_fn, 1))
+        img_1 = cv.cvtColor(img_1, cv.COLOR_RGB2BGR)
+        img_2 = np.uint8(cv.imread(im_2_fn, 1))
+        img_2 = cv.cvtColor(img_2, cv.COLOR_RGB2BGR)
+
+        return img_1, img_2
 
     @staticmethod
     def load_data(config):
@@ -146,9 +132,15 @@ class TestPipeline(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    # New Network
-    # t = TestPipeline("./_test/config_vgg16.json")
-    # Mona's Network
-    t = TestPipeline("./_test/config.json")
-    # Lens flare:
-    t.test_compare_pipelines(4)
+
+    # get sample ids
+    sample_ids = [
+        "inthedark-21-2057-27-1830",
+        "inthedark-1-15-19-16",
+        "inthedark-27-2182-8-1886",
+    ]
+    # Instantiate
+    t = TestPipeline("./_test/config.json", sample_ids=sample_ids)
+    t.run_pipeline(
+        localization="svd", mat_weights=True, idx_data="inthedark-21-2057-27-1830"
+    )

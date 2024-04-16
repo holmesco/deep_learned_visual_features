@@ -365,7 +365,8 @@ class Pipeline(nn.Module):
 
             # If we are testing, return the pose.
             if test:
-                return T_trg_src
+                saved_data = dict(num_inliers=num_inliers, weights=weights)
+                return T_trg_src, saved_data
 
         ################################################################################################################
         # Compute the losses
