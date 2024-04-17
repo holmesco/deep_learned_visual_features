@@ -52,9 +52,9 @@ class TestPipeline(unittest.TestCase):
         # Set up ransac parameters
         t.config["outlier_rejection"]["on"] = True
         t.config["outlier_rejection"]["type"] = "ransac"
-        t.config["outlier_rejection"]["dim"] = "3D"
+        t.config["outlier_rejection"]["dim"] = ["3D"]
         with torch.no_grad():
-            pose, pose_gt, saved_data = t.run_pipeline(idx_data=idx_data)
+            pose, pose_gt = t.run_pipeline(idx_data=idx_data)
 
         diff = se3_log(pose.bmm(torch.inverse(pose_gt))).unsqueeze(2)
         print(diff)
@@ -106,13 +106,13 @@ class TestPipeline(unittest.TestCase):
         pose_se3 = pose_se3[None, :, :]
         pose_log = pose_log[None, :]
         # Run Pipeline
-        output_se3, saved_data = pipeline.forward(
+        output_se3 = pipeline.forward(
             t.net, images, disparities, pose_se3, pose_log, 0, test=test
         )
         # Check that output is close to ground truth
         output_se3 = output_se3.cpu().float()
 
-        return output_se3, pose_se3, saved_data
+        return output_se3, pose_se3
 
     @staticmethod
     def load_data(config):
@@ -169,6 +169,6 @@ if __name__ == "__main__":
         "inthedark-27-2182-8-1886",
     ]
     # config_file = "./_test/config_vgg16.json"
-    config_file = "./_test/config.json"
+    config_file = "./_test/config_svd.json"
     t = TestPipeline(config_file, sample_ids=sample_ids)
     t.test_ransac(idx_data="inthedark-1-15-19-16")

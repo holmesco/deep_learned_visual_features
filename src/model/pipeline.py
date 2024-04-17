@@ -83,7 +83,17 @@ class Pipeline(nn.Module):
         image_coords = torch.stack((u_coord, v_coord), dim=0)  # 2xHW
         self.register_buffer("image_coords", image_coords)
 
-    def forward(self, net, images, disparities, pose_se3, pose_log, epoch, test=False):
+    def forward(
+        self,
+        net,
+        images,
+        disparities,
+        pose_se3,
+        pose_log,
+        epoch,
+        test=False,
+        save_data=False,
+    ):
         """
         A forward pass of the training piepline to estimate the relative pose given a source and target image
         pair. Also computes losses for training.
@@ -367,8 +377,18 @@ class Pipeline(nn.Module):
 
             # If we are testing, return the pose.
             if test:
-                saved_data = dict(num_inliers=num_inliers, weights=weights)
-                return T_trg_src, saved_data
+                if save_data:
+                    saved_data = dict(
+                        num_inliers=num_inliers.cpu().detach().numpy(),
+                        weights=weights.cpu().detach().numpy(),
+                        kpt_2D_pseudo=kpt_2D_pseudo.cpu().detach().numpy(),
+                        kpt_2D_src=kpt_2D_src.cpu().detach().numpy(),
+                        scores_src=scores_src.cpu().detach().numpy(),
+                        scores_trg=scores_trg.cpu().detach().numpy(),
+                    )
+                    return T_trg_src, saved_data
+                else:
+                    return T_trg_src
 
         ################################################################################################################
         # Compute the losses

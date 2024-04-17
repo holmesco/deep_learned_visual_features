@@ -40,7 +40,7 @@ class RANSACBlock(nn.Module):
         self.inlier_threshold = config["outlier_rejection"]["inlier_threshold"]
 
         # Error must be smaller than or equal to threshold to this be considered inlier.
-        dim_key = config["outlier_rejection"]["dim"]
+        dim_key = config["outlier_rejection"]["dim"][0]
         self.error_tolerance = config["outlier_rejection"]["error_tolerance"][dim_key]
 
         # Maximum number of iterations to run before giving up.
