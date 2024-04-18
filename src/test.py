@@ -11,13 +11,13 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
-import tqdm
 from torch.utils import data
 from torch.utils.data.sampler import RandomSampler
+from tqdm import tqdm
 
 from src.dataset import Dataset
 from src.model.pipeline import Pipeline
-from src.model.unet import UNet
+from src.model.unet import UNet, UNetVGG16
 from src.utils.lie_algebra import se3_log
 from src.utils.statistics import Statistics
 from visualization.plots import Plotting
@@ -97,8 +97,15 @@ def test_model(pipeline, net, data_loader, dof, std_out):
 
             try:
                 # Compute the output poses (we use -1 a placeholder as epoch is not relevant).
-                output_se3, _ = pipeline.forward(
-                    net, images, disparities, pose_se3, pose_log, epoch=-1, test=True
+                output_se3, saved_data = pipeline.forward(
+                    net,
+                    images,
+                    disparities,
+                    pose_se3,
+                    pose_log,
+                    epoch=-1,
+                    test=True,
+                    save_data=True,
                 )
 
             except Exception as e:
@@ -131,7 +138,7 @@ def test_model(pipeline, net, data_loader, dof, std_out):
             target_log_np = se3_log(pose_se3).detach().cpu().numpy()
             output_se3_np = output_se3.detach().cpu().numpy()  # Bx4x4
             target_se3_np = pose_se3.detach().cpu().numpy()
-            # kpt_inliers = torch.sum(saved_data['valid_inliers'][(0, 1)], dim=2).detach().cpu().numpy()  # B x 1
+            kpt_inliers = saved_data["num_inliers"]
 
             # Loop over each datas sample in the batch.
             for k in range(output_se3_np.shape[0]):
@@ -147,7 +154,7 @@ def test_model(pipeline, net, data_loader, dof, std_out):
                 stats.add_outputs_targets_log(
                     live_run_id, output_log_np[k, :], target_log_np[k, :]
                 )
-                # stats.add_kpt_inliers(live_run_id, kpt_inliers[k, 0])
+                stats.add_num_inliers(live_run_id, kpt_inliers[k])
 
     # Compute errors.
     # RMSE for each pose DOF.
@@ -220,6 +227,9 @@ def test(pipeline, net, test_loaders, results_path, std_out):
                 outputs_se3 = path_stats.get_outputs_se3()
                 targets_se3 = path_stats.get_targets_se3()
                 rmse(outputs_se3, targets_se3)
+
+            # Save the stats for the path.
+            path_stats.save_stats(results_path, path_name, map_run_id)
 
         print(f"Test time for path {path_name}: {time.time() - start_time}")
 
@@ -300,12 +310,20 @@ def main(config):
     testing_pipeline = Pipeline(config)
     testing_pipeline = testing_pipeline.cuda()
 
-    # Set up the network.
-    net = UNet(
-        config["network"]["num_channels"],
-        config["network"]["num_classes"],
-        config["network"]["layer_size"],
-    )
+    # Set up the network, optimizer, and scheduler
+    if config["network"]["type"] == "unet":
+        net = UNet(
+            config["network"]["num_channels"],
+            config["network"]["num_classes"],
+            config["network"]["layer_size"],
+        )
+
+    elif config["network"]["type"] == "unet_vgg16":
+        net = UNetVGG16(
+            config["network"]["num_channels"],
+            config["network"]["num_classes"],
+            config["network"]["pretrained"],
+        )
 
     # Load the network weights from a checkpoint.
     if os.path.exists(checkpoint_path):

@@ -1,9 +1,13 @@
+import pickle
+
 import numpy as np
+
 
 class Statistics:
     """
-        A class for keeping track of poses, errors, and losses.
+    A class for keeping track of poses, errors, and losses.
     """
+
     def __init__(self):
         self.epoch_losses = {}
         self.epoch_errors = np.empty(0)
@@ -14,6 +18,7 @@ class Statistics:
         self.live_run_ids = []
         self.map_run_id = None
         self.sample_ids = {}
+        self.num_inliers = {}
 
     def get_epoch_stats(self):
         return self.epoch_losses, self.epoch_errors
@@ -51,6 +56,12 @@ class Statistics:
         else:
             self.epoch_errors = np.concatenate((self.epoch_errors, errors), axis=0)
 
+    def add_num_inliers(self, live_run_id, num_inliers):
+        if live_run_id not in self.num_inliers:
+            self.num_inliers[live_run_id] = [num_inliers]
+        else:
+            self.num_inliers[live_run_id] += [num_inliers]
+
     def add_outputs_targets_se3(self, live_run_id, output, target):
         if live_run_id not in self.outputs_se3.keys():
             self.outputs_se3[live_run_id] = [output]
@@ -66,8 +77,12 @@ class Statistics:
             self.outputs_log[live_run_id] = np.zeros((1, num_dof))
             self.targets_log[live_run_id] = np.zeros((1, num_dof))
 
-        self.outputs_log[live_run_id] = np.concatenate((self.outputs_log[live_run_id], outputs.reshape(1, num_dof)), axis=0)
-        self.targets_log[live_run_id] = np.concatenate((self.targets_log[live_run_id], targets.reshape(1, num_dof)), axis=0)
+        self.outputs_log[live_run_id] = np.concatenate(
+            (self.outputs_log[live_run_id], outputs.reshape(1, num_dof)), axis=0
+        )
+        self.targets_log[live_run_id] = np.concatenate(
+            (self.targets_log[live_run_id], targets.reshape(1, num_dof)), axis=0
+        )
 
     def add_sample_id(self, live_run_id, sample_id):
         if live_run_id not in self.sample_ids.keys():
@@ -82,3 +97,10 @@ class Statistics:
     def set_map_run_id(self, map_run_id):
         if self.map_run_id is None:
             self.map_run_id = map_run_id
+
+    def save_stats(self, results_path, path_name, map_run_id):
+
+        path = f"{results_path}/{path_name}/map_run_{map_run_id}/stats.pickle"
+
+        with open(path, "wb") as f:
+            pickle.dump(self, f, pickle.HIGHEST_PROTOCOL)

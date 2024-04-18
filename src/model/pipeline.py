@@ -358,7 +358,7 @@ class Pipeline(nn.Module):
             if test or (epoch >= self.config["training"]["start_pose_estimation"]):
                 #  Check that we have enough inliers for all example sin the bach to compute pose.
                 valid = kpt_valid_src & kpt_valid_pseudo & valid_inliers
-                num_inliers = torch.sum(valid.squeeze(1), dim=1)[0]
+                num_inliers = torch.sum(valid.squeeze(1), dim=1)
                 if torch.any(num_inliers < 6):
                     raise RuntimeError(
                         "Too few inliers to compute pose: {}".format(num_inliers)

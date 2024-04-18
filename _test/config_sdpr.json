@@ -3,7 +3,7 @@
     "experiment_name": "unittest_pipeline",
     "dataset_name": "dataset_inthedark_small",
     "cuda_device": 0,
-    "checkpoint_name": "network_vgg16_sdpr",
+    "checkpoint_name": "network_vgg16_sdpr_v1",
     "training": {
         "start_pose_estimation": 0,
         "max_epochs": 50,

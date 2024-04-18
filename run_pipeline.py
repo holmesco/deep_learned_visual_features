@@ -24,7 +24,12 @@ def set_seed(x):
 
 
 class TestPipeline:
-    def __init__(t, config, sample_ids=None):
+    def __init__(
+        t,
+        config,
+        sample_ids=None,
+        device=None,
+    ):
 
         # Default dtype
         torch.set_default_dtype(torch.float64)
@@ -35,6 +40,8 @@ class TestPipeline:
         t.config = json.load(open(config))
         t.config["training"]["start_pose_estimation"] = 0
         # Set up device
+        if device is not None:
+            t.config["cuda_device"] = device
         device = torch.device(
             "cuda:{}".format(t.config["cuda_device"])
             if torch.cuda.device_count() > 0
@@ -134,59 +141,78 @@ class TestPipeline:
         return net
 
 
-def compare_keypoints(id, num_matches=50):
+def compare_keypoints(id, num_matches=100, device=None):
     sample_ids = [id]
     with torch.no_grad():
         # Get images
         img_1, img_2 = get_imgs(id=id)
         # Run new pipeline
-        p_new = TestPipeline(config="./_test/config_sdpr.json", sample_ids=sample_ids)
+        p_new = TestPipeline(
+            config="./_test/config_sdpr.json", sample_ids=sample_ids, device=device
+        )
         diff_new, data_new = p_new.run_pipeline(id=id)
         # Draw matches
-        img_match_new = draw_keypoint_matches(
+        img_match_new, num_matches_new = draw_keypoint_matches(
             data_new["kpt_2D_src"],
             data_new["kpt_2D_pseudo"],
             data_new["weights"],
             img_1,
             img_2,
-            num_matches=num_matches,
         )
+        print(f"New pipeline found {num_matches_new} matches with weight > 0.01")
 
         # run old pipeline
-        p_old = TestPipeline(config="./_test/config_svd.json", sample_ids=sample_ids)
+        p_old = TestPipeline(
+            config="./_test/config_svd.json", sample_ids=sample_ids, device=device
+        )
         diff_old, data_old = p_old.run_pipeline(id=id)
         # Draw matches
-        img_match_old = draw_keypoint_matches(
+        img_match_old, num_matches_old = draw_keypoint_matches(
             data_old["kpt_2D_src"],
             data_old["kpt_2D_pseudo"],
             data_old["weights"],
             img_1,
             img_2,
-            num_matches=num_matches,
         )
+        print(f"Old pipeline found {num_matches_old} matches with weight > 0.01")
 
-        # plot
-        dpi = 200
-        width = 512 * 3 / dpi
-        height = 384 * 2 / dpi
-        fig, axs = plt.subplots(2, 3, figsize=(width, height))
-        axs[0, 0].imshow(img_1)
-        axs[0, 0].imshow(data_new["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
-        axs[0, 1].imshow(img_match_new[:, :512, :])
-        axs[0, 2].imshow(img_match_new[:, 512:, :])
-        axs[1, 0].imshow(img_1)
-        axs[1, 0].imshow(data_old["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
-        axs[1, 1].imshow(img_match_old[:, :512, :])
-        axs[1, 2].imshow(img_match_old[:, 512:, :])
-        for a in axs.flatten():
-            a.set_xticklabels([])
-            a.set_yticklabels([])
-            a.axis("off")
-        plt.subplots_adjust(wspace=0, hspace=0)
-        plt.show()
+    # plot
+    dpi = 600
+    width = 512 * 4 / dpi
+    height = 384 * 2 / dpi
+    fig, axs = plt.subplots(2, 4, figsize=(width, height))
+    axs[0, 0].imshow(img_1)
+    axs[0, 0].imshow(data_new["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[0, 3].imshow(img_2)
+    axs[0, 3].imshow(data_new["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[0, 1].imshow(img_match_new[:, :512, :])
+    axs[0, 2].imshow(img_match_new[:, 512:, :])
+    axs[1, 0].imshow(img_1)
+    axs[1, 0].imshow(data_old["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[1, 3].imshow(img_2)
+    axs[1, 3].imshow(data_old["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[1, 1].imshow(img_match_old[:, :512, :])
+    axs[1, 2].imshow(img_match_old[:, 512:, :])
+    # adjust for a tight layout
+    for a in axs.flatten():
+        a.set_xticklabels([])
+        a.set_yticklabels([])
+        a.axis("off")
+    plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
+
+    savefig(fig, "kpt_compare_" + id, p_new.config)
 
 
-def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=20):
+def savefig(fig, name, config):
+    home = config["home_path"]
+    directory = f"{home}/plots/"
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    fig.savefig(f"{directory}/{name}.png", format="png", dpi=600)
+
+
+def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, threshold=0.01):
+
     # Generate opencv match array
     matches = [
         cv.DMatch(_queryIdx=i, _trainIdx=i, _distance=1 - weights[0, 0, i])
@@ -203,6 +229,10 @@ def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=
         for i in range(kp2_pseudo.shape[1])
     ]
 
+    # Threshold the weights
+    thresh = [m.distance > 1 - threshold for m in matches]
+    num_matches = thresh.index(True)
+
     # Draw matches
     img3 = cv.drawMatches(
         im1_cv,
@@ -214,7 +244,7 @@ def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=
         flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
     )
 
-    return img3
+    return img3, num_matches
 
 
 def get_imgs(id="inthedark-27-2182-8-1886"):
@@ -235,11 +265,11 @@ if __name__ == "__main__":
 
     # # get sample ids
     # sample_ids = [
-    #     "inthedark-21-2057-27-1830",
-    #     "inthedark-1-15-19-16",
-    #     "inthedark-27-2182-8-1886",
+    #     "inthedark-21-2057-27-1830", day day
+    #     "inthedark-1-15-19-16",     night day
+    #     "inthedark-27-2182-8-1886", lensflare
     # ]
     # # Instantiate
     # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
     # t.run_pipeline(id="inthedark-1-15-19-16")
-    compare_keypoints("inthedark-1-15-19-16")
+    compare_keypoints("inthedark-27-2182-8-1886", device=1)
