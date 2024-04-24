@@ -29,6 +29,8 @@ class RANSACBlock(nn.Module):
         # Transform from vehicle to sensor frame.
         self.register_buffer("T_s_v", T_s_v)
 
+        self.n_ransac_pts = 15
+
         self.stereo_cam = StereoCameraModel(
             config["stereo"]["cu"],
             config["stereo"]["cv"],
@@ -106,7 +108,7 @@ class RANSACBlock(nn.Module):
 
             # Pick a random subset of 6 point pairs (3 sufficient, but some points will have weight 0 so pick a
             # few more than needed to increase probability of getting points with rank 3).
-            N_ransac_pts = 6
+            N_ransac_pts = self.n_ransac_pts
             rand_index = (
                 torch.randint(0, n_points, size=(batch_size, N_ransac_pts))
                 .type_as(pts_3D_src)

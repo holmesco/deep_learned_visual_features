@@ -139,7 +139,7 @@ def rmse(outputs_se3, targets_se3):
 
 if __name__ == "__main__":
     results_path_old = "results/test_svd/inthedark"
-    results_path_new = "results/test_sdpr_v1/inthedark"
+    results_path_new = "results/test_sdpr_v2/inthedark"
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [2, 11, 16, 17, 23, 28]
     compare_stats = CompareStats(

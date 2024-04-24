@@ -152,14 +152,14 @@ def compare_keypoints(id, num_matches=100, device=None):
         )
         diff_new, data_new = p_new.run_pipeline(id=id)
         # Draw matches
-        img_match_new, num_matches_new = draw_keypoint_matches(
+        img_match_new = draw_keypoint_matches(
             data_new["kpt_2D_src"],
             data_new["kpt_2D_pseudo"],
             data_new["weights"],
             img_1,
             img_2,
         )
-        print(f"New pipeline found {num_matches_new} matches with weight > 0.01")
+        # print(f"New pipeline found {num_matches_new} matches with weight > 0.01")
 
         # run old pipeline
         p_old = TestPipeline(
@@ -167,14 +167,14 @@ def compare_keypoints(id, num_matches=100, device=None):
         )
         diff_old, data_old = p_old.run_pipeline(id=id)
         # Draw matches
-        img_match_old, num_matches_old = draw_keypoint_matches(
+        img_match_old = draw_keypoint_matches(
             data_old["kpt_2D_src"],
             data_old["kpt_2D_pseudo"],
             data_old["weights"],
             img_1,
             img_2,
         )
-        print(f"Old pipeline found {num_matches_old} matches with weight > 0.01")
+        # print(f"Old pipeline found {num_matches_old} matches with weight > 0.01")
 
     # plot
     dpi = 600
@@ -211,7 +211,7 @@ def savefig(fig, name, config):
     fig.savefig(f"{directory}/{name}.png", format="png", dpi=600)
 
 
-def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, threshold=0.01):
+def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=50):
 
     # Generate opencv match array
     matches = [
@@ -229,10 +229,6 @@ def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, threshold=0.
         for i in range(kp2_pseudo.shape[1])
     ]
 
-    # Threshold the weights
-    thresh = [m.distance > 1 - threshold for m in matches]
-    num_matches = thresh.index(True)
-
     # Draw matches
     img3 = cv.drawMatches(
         im1_cv,
@@ -244,7 +240,7 @@ def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, threshold=0.
         flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
     )
 
-    return img3, num_matches
+    return img3
 
 
 def get_imgs(id="inthedark-27-2182-8-1886"):
@@ -272,4 +268,6 @@ if __name__ == "__main__":
     # # Instantiate
     # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
     # t.run_pipeline(id="inthedark-1-15-19-16")
+    compare_keypoints("inthedark-1-15-19-16", device=1)
+    compare_keypoints("inthedark-21-2057-27-1830", device=1)
     compare_keypoints("inthedark-27-2182-8-1886", device=1)
