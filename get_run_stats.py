@@ -119,23 +119,35 @@ class CompareStats:
 
         return poses_est, poses_gt
 
-    def plot_trajectories(self, map_run_id, live_run_id, inds=None):
-        # load stats
-        stats = self.load_stats(self.results_paths[0], map_run_id)
-        # get absolute trajectories
-        poses_est, poses_gt = self.get_poses_abs(stats, live_run_id)
-        # Limit run indices
-        if inds is not None:
-            poses_est = poses_est[inds]
-            poses_gt = poses_gt[inds]
-
+    def plot_trajectories(
+        self, map_run_id, live_run_id, ds_factor=10, frame_colors=None, inds=None
+    ):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
+        if frame_colors is None:
+            frame_colors = [None] * len(self.results_paths)
+        for i, results_path in enumerate(self.results_paths):
+            # load stats
+            stats = self.load_stats(results_path, map_run_id)
+            # get absolute trajectories
+            poses_est, poses_gt = self.get_poses_abs(
+                stats, live_run_id, ds_factor=ds_factor
+            )
+            # Limit run indices
+            if inds is not None:
+                poses_est = poses_est[inds]
+                poses_gt = poses_gt[inds]
+
+            self.plot_trajectory(
+                ax,
+                poses_est,
+                axis_alpha=1.0,
+                trace_color="m",
+                trace_alpha=0.3,
+                frame_color=frame_colors[i],
+            )
         self.plot_trajectory(
-            ax, poses_gt, axis_alpha=0.1, trace_color="m", trace_alpha=0.3
-        )
-        self.plot_trajectory(
-            ax, poses_est, axis_alpha=1.0, trace_color="k", trace_alpha=0.3
+            ax, poses_gt, axis_alpha=0.1, trace_color="k", trace_alpha=0.3
         )
         # Make box the right size
         ax.set_box_aspect(
@@ -151,36 +163,39 @@ class CompareStats:
         return fig
 
     @staticmethod
-    def plot_trajectory(ax, poses, axis_alpha=0.7, trace_color="k", trace_alpha=0.5):
+    def plot_trajectory(
+        ax, poses, axis_alpha=0.7, trace_color="k", trace_alpha=0.5, frame_color=None
+    ):
         """Plots a trajectory of poses. Assumes poses transform from world to vehicle frame."""
+
+        if frame_color is None:
+            frame_color = ["r", "g", "b"]
         origin_prev = None
         for i, T in enumerate(poses):
             x_axis = T[:3, 0]
             y_axis = T[:3, 1]
             z_axis = T[:3, 2]
             origin = T[:3, 3]
-
             # Plot the original and transformed coordinate axes
-
             length = 1.0
             ax.quiver(
                 *origin,
                 *x_axis,
-                color="r",
+                color=frame_color[0],
                 alpha=axis_alpha,
                 length=length,
             )
             ax.quiver(
                 *origin,
                 *y_axis,
-                color="g",
+                color=frame_color[1],
                 alpha=axis_alpha,
                 length=length,
             )
             ax.quiver(
                 *origin,
                 *z_axis,
-                color="b",
+                color=frame_color[2],
                 alpha=axis_alpha,
                 length=length,
             )
@@ -276,8 +291,9 @@ def print_tables_TRO():
         "results/TRO_test_baseline/inthedark",
         "results/TRO_test_sdpr_nomat/inthedark",
         "results/TRO_test_sdpr/inthedark",
+        "results/TRO_test_svdRANSAC_sdp/inthedark",
     ]
-    labels = ["Baseline", "SDPR No Mat", "SDPR"]
+    labels = ["Baseline", "SDPR No Mat", "SDPR", "SVD-RANSAC-SDPR"]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [0, 1, 2]
     compare_stats = CompareStats(
@@ -299,10 +315,14 @@ def print_tables_TRO():
     print(latex_tbl)
 
 
-def plot_traj_TRO():
+def plot_traj_TRO(ds_factor=10):
 
-    results_paths = ["results/TRO_test_sdpr/inthedark"]
-    labels = ["SDPR"]
+    results_paths = [
+        "results/TRO_test_baseline/inthedark",
+        "results/TRO_test_sdpr_nomat/inthedark",
+    ]
+    labels = ["baseline", "sdpr"]
+    colors = [["r", "r", "r"], ["b", "b", "b"]]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [0, 1, 2, 3]
     compare_stats = CompareStats(
@@ -312,9 +332,10 @@ def plot_traj_TRO():
         map_ids=map_ids,
     )
     # full trajectory
-    fig = compare_stats.plot_trajectories(0, "1")
-    # zoomed trajectory
-    fig_zoom = compare_stats.plot_trajectories(0, "1", slice(70, 90))
+    fig = compare_stats.plot_trajectories(
+        0, "1", ds_factor=ds_factor, frame_colors=colors
+    )
+
     plt.show()
     print("done")
 
