@@ -4,9 +4,9 @@ import torch.nn.functional as F
 from torch.profiler import record_function
 
 from src.model.keypoint_block import KeypointBlock
-from src.model.loc_block import LocBlock
 from src.model.matcher_block import MatcherBlock
 from src.model.ransac_block import RANSACBlock
+from src.model.sdpr_block import SDPRBlock
 from src.model.svd_block import SVDBlock
 from src.model.unet import UNet
 from src.model.weight_block import WeightBlock
@@ -64,7 +64,7 @@ class Pipeline(nn.Module):
         self.matcher_block = MatcherBlock()
         self.weight_block = WeightBlock()
         self.svd_block = SVDBlock(self.T_s_v)
-        self.loc_block = LocBlock(self.T_s_v)
+        self.sdpr_block = SDPRBlock(self.T_s_v)
         self.ransac_block = RANSACBlock(config, self.T_s_v)
 
         self.stereo_cam = StereoCameraModel(
@@ -369,7 +369,7 @@ class Pipeline(nn.Module):
                 if self.config["pipeline"]["localization"] == "svd":
                     T_trg_src = self.svd_block(kpt_3D_src, kpt_3D_pseudo, weights)
                 elif self.config["pipeline"]["localization"] == "sdpr":
-                    T_trg_src = self.loc_block(
+                    T_trg_src = self.sdpr_block(
                         kpt_3D_src, kpt_3D_pseudo, weights, inv_cov_weights
                     )
                 else:

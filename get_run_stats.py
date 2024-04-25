@@ -341,6 +341,6 @@ def plot_traj_TRO(ds_factor=10):
 
 
 if __name__ == "__main__":
-    plot_traj_TRO()
+    # plot_traj_TRO()
     # print_tables_RSS()
-    # print_tables_TRO()
+    print_tables_TRO()

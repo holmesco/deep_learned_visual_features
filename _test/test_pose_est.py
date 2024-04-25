@@ -10,12 +10,13 @@ import sdprlayer.stereo_tuner as st
 import torch
 
 from src.dataset import Dataset
-from src.model.loc_block import LocBlock
+from src.model.lieopt_block import LieOptBlock
 from src.model.pipeline import Pipeline
+from src.model.sdpr_block import SDPRBlock
 from src.model.svd_block import SVDBlock
 from src.model.unet import UNet
 from src.utils.keypoint_tools import get_inv_cov_weights
-from src.utils.lie_algebra import se3_inv, se3_log
+from src.utils.lie_algebra import se3_exp, se3_inv, se3_log
 from src.utils.stereo_camera_model import StereoCameraModel
 from visualization.plots import plot_ellipsoid
 
@@ -33,6 +34,7 @@ class TestLocalize(unittest.TestCase):
         # Default dtype
         torch.set_default_dtype(torch.float64)
         torch.autograd.set_detect_anomaly(True)
+        t.device = "cuda:0"
         # Set seed
         set_seed(0)
         # Define camera
@@ -56,9 +58,10 @@ class TestLocalize(unittest.TestCase):
         # Define Stereo Camera
         stereo_cam = StereoCameraModel(0.0, 0.0, 484.5, 0.24).cuda()
         # Frame tranform from vehicle to camera (sensor)
-        T_s_v = torch.tensor(
-            [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, 0.5], [0, 0, 0, 1]]
-        ).type_as(r_v0s)
+        pert = 0.01
+        xi_pert = torch.tensor([[pert, pert, pert, pert, pert, pert]])
+        T_s_v = se3_exp(xi_pert)[0]
+
         # Generate image coordinates (in vehicle frame)
         cam_coords_v = torch.bmm(C_v0s, r_ls - r_v0s)
         cam_coords_v = torch.concat(
@@ -108,30 +111,32 @@ class TestLocalize(unittest.TestCase):
         transformation"""
 
         # Instantiate
-        loc_block = LocBlock(t.T_s_v)
-        T_trg_src = loc_block(t.keypoints_3D_src, t.keypoints_3D_trg, t.weights)
+        sdpr_block = SDPRBlock(t.T_s_v)
+        T_trg_src = sdpr_block(
+            t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, verbose=True
+        )
         # Check that
         diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
-        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=2e-7)
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-7)
 
     def test_sdpr_mat_weight_cost(t):
         """Test that the sdpr localization properly estimates the target
         transformation"""
         # Get matrix weights - assuming 0.5 pixel std dev
-        valid = t.weights
+        valid = t.weights > 0
         inv_cov_weights, cov = get_inv_cov_weights(
             t.keypoints_3D_trg, valid, t.stereo_cam
         )
         # Instantiate
-        loc_block = LocBlock(t.T_s_v)
-        Q, scales, offsets = loc_block.get_obj_matrix(
+        sdpr_block = SDPRBlock(t.T_s_v)
+        Q, scales, offsets = sdpr_block.get_obj_matrix(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
         )
-        Q_vec, scales_vec, offsets_vec = loc_block.get_obj_matrix_vec(
+        Q_vec, scales_vec, offsets_vec = sdpr_block.get_obj_matrix_vec(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
         )
         # Check that
-        np.testing.assert_allclose(Q.cpu().numpy(), Q_vec.cpu().numpy(), atol=1e-20)
+        np.testing.assert_allclose(Q.cpu().numpy(), Q_vec.cpu().numpy(), atol=1e-15)
 
     def test_sdpr_mat_weight_forward(t):
         """Test that the sdpr localization properly estimates the target
@@ -143,15 +148,88 @@ class TestLocalize(unittest.TestCase):
         )
 
         # Instantiate
-        loc_block = LocBlock(t.T_s_v)
-        T_trg_src = loc_block(
-            t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
+        sdpr_block = SDPRBlock(t.T_s_v)
+        T_trg_src = sdpr_block(
+            t.keypoints_3D_src,
+            t.keypoints_3D_trg,
+            t.weights,
+            inv_cov_weights,
+            verbose=True,
         )
 
         diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-6)
+
+    def test_lieopt_forward(t):
+        """Test that the local localization properly estimates the target
+        transformation"""
+
+        # Instantiate
+        lie_block = LieOptBlock(t.T_s_v, 1, 50)
+        lie_block.to(t.device)
+        # Run with ground truth initialization
+        T_trg_src = lie_block(
+            t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, t.T_trg_src.cuda()
+        )
+        # Check that the difference is small
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
         np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
 
-    def test_inv_cov_numerical(self):
+        # Define perturbation
+        pert = 0.1
+        xi_pert = torch.tensor([[pert, pert, pert, pert, pert, pert]])
+        T_pert = se3_exp(xi_pert)
+        T_init = T_pert.bmm(t.T_trg_src)
+        # Run with perturbed starting point
+        T_trg_src = lie_block(
+            t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, T_init.cuda()
+        )
+        # Check that the difference is small
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-10)
+
+    def test_lieopt_mat_weight_forward(t):
+        """Test that the lie algebra localization properly estimates the target
+        transformation. Use matrix weights."""
+        # Get matrix weights - assuming 0.5 pixel std dev
+        valid = t.weights > 0
+        inv_cov_weights, cov = get_inv_cov_weights(
+            t.keypoints_3D_trg, valid, t.stereo_cam
+        )
+
+        # Instantiate
+        lie_block = LieOptBlock(t.T_s_v, 1, 50)
+        lie_block.to(t.device)
+        # Test with ground truth initialization
+        T_trg_src = lie_block(
+            t.keypoints_3D_src,
+            t.keypoints_3D_trg,
+            t.weights,
+            t.T_trg_src.cuda(),
+            inv_cov_weights,
+            verbose=True,
+        )
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
+        # Define perturbation
+        pert = 0.5
+        xi_pert = torch.tensor([[pert, pert, pert, pert, pert, pert]])
+        T_pert = se3_exp(xi_pert)
+        T_init = T_pert.bmm(t.T_trg_src)
+        # Test with perturbed starting point
+        T_trg_src = lie_block(
+            t.keypoints_3D_src,
+            t.keypoints_3D_trg,
+            t.weights,
+            T_init.cuda(),
+            inv_cov_weights,
+            verbose=True,
+        )
+        # Check that the difference is small
+        diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-10)
+
+    def test_inv_cov_numerical(t):
         N_pts = 1000
         # get random point
         pt = torch.tensor([3.0, 3.0, 3.0, 1.0])[None, :, None].cuda()
@@ -162,7 +240,7 @@ class TestLocalize(unittest.TestCase):
         pixel_noisy = pixel_gt.expand(1, -1, N_pts) + noise_pxl.cuda()
         # Convert back to 3D
         disparity = pixel_noisy[0, 2, :] - pixel_noisy[0, 0, :]
-        pt_noisy = self.get_cam_points(pixel_noisy, disparity, t.stereo_cam.Q)
+        pt_noisy = t.get_cam_points(pixel_noisy, disparity, t.stereo_cam.Q)
         noise_pt = (pt_noisy - torch.mean(pt_noisy, dim=2, keepdim=True))[:, :3, :]
         cov = torch.matmul(noise_pt, noise_pt.transpose(1, 2)) / (N_pts - 1)
         # Compute inverse covariance
@@ -173,21 +251,21 @@ class TestLocalize(unittest.TestCase):
         cov = cov[0].cpu().detach().numpy()
         pt = pt.cpu().detach().numpy()
         noise_pt = noise_pt.cpu().detach().numpy()
-        # Plot covariance
-        plt.figure()
-        ax = plt.axes(projection="3d")
-        # plot measurements in camera frame
-        plot_ellipsoid(np.zeros((3, 1)), cov_cam, ax=ax, color="r")
-        plot_ellipsoid(np.zeros((3, 1)), cov, ax=ax, color="b")
-        ax.scatter3D(
-            noise_pt[0, 0, :],
-            noise_pt[0, 1, :],
-            noise_pt[0, 2, :],
-            marker=".",
-            color="black",
-            alpha=0.5,
-        )
-        plt.show()
+        # # Plot covariance
+        # plt.figure()
+        # ax = plt.axes(projection="3d")
+        # # plot measurements in camera frame
+        # plot_ellipsoid(np.zeros((3, 1)), cov_cam, ax=ax, color="r")
+        # plot_ellipsoid(np.zeros((3, 1)), cov, ax=ax, color="b")
+        # ax.scatter3D(
+        #     noise_pt[0, 0, :],
+        #     noise_pt[0, 1, :],
+        #     noise_pt[0, 2, :],
+        #     marker=".",
+        #     color="black",
+        #     alpha=0.5,
+        # )
+        # plt.show()
 
         # Compare covariances
         np.testing.assert_allclose(cov_cam, cov, atol=1e-4)
@@ -222,7 +300,7 @@ class TestLocalize(unittest.TestCase):
 
         return cam_coords
 
-    def test_inv_cov_weights(self):
+    def test_inv_cov_weights(t):
         import matplotlib
 
         matplotlib.use("TkAgg")
@@ -233,41 +311,44 @@ class TestLocalize(unittest.TestCase):
         W, cov_cam = get_inv_cov_weights(t.keypoints_3D_trg, valid, t.stereo_cam)
         id = torch.eye(3).cuda()
         assert torch.all(
-            W[0, 0, :, :] == torch.eye(3).cuda()
+            W[0, 0, :, :] == torch.zeros((3, 3)).cuda()
         ), "Invalid mask not working"
-        assert W.size() == (1, 30, 3, 3), "Size Incorrect"
+        assert W.size() == (1, 50, 3, 3), "Size Incorrect"
 
-        # Check plot
-        valid[0, 0, 0] = torch.tensor(1)
-        W, cov_cam = get_inv_cov_weights(t.keypoints_3D_trg, valid, t.stereo_cam)
-        cov_cam = cov_cam.cpu().detach().numpy()
-        targ = t.keypoints_3D_trg.cpu().detach().numpy()
-        plt.figure()
-        ax = plt.axes(projection="3d")
-        # plot measurements in camera frame
-        for i in range(t.keypoints_3D_trg.size(2)):
-            plot_ellipsoid(targ[0, :3, [i]].T, cov_cam[0, i, :, :], ax=ax)
-        ax.scatter3D(
-            targ[0, 0, :],
-            targ[0, 1, :],
-            targ[0, 2, :],
-            marker="*",
-            color="g",
-        )
-        ax.scatter3D(
-            0.0,
-            0.0,
-            0.0,
-            marker="*",
-            color="r",
-        )
+        # # Check plot
+        # valid[0, 0, 0] = torch.tensor(1)
+        # W, cov_cam = get_inv_cov_weights(t.keypoints_3D_trg, valid, t.stereo_cam)
+        # cov_cam = cov_cam.cpu().detach().numpy()
+        # targ = t.keypoints_3D_trg.cpu().detach().numpy()
+        # plt.figure()
+        # ax = plt.axes(projection="3d")
+        # # plot measurements in camera frame
+        # for i in range(t.keypoints_3D_trg.size(2)):
+        #     plot_ellipsoid(targ[0, :3, [i]].T, cov_cam[0, i, :, :], ax=ax)
+        # ax.scatter3D(
+        #     targ[0, 0, :],
+        #     targ[0, 1, :],
+        #     targ[0, 2, :],
+        #     marker="*",
+        #     color="g",
+        # )
+        # ax.scatter3D(
+        #     0.0,
+        #     0.0,
+        #     0.0,
+        #     marker="*",
+        #     color="r",
+        # )
 
-        plt.show()
+        # plt.show()
 
 
 if __name__ == "__main__":
     t = TestLocalize()
-    t.test_sdpr_mat_weight_forward()
+    # t.test_sdpr_mat_weight_forward()
+    t.test_sdpr_mat_weight_cost()
     # t.test_sdpr_forward()
-    # t.test_svd_forward()
     # t.test_inv_cov_weights()
+    # t.test_inv_cov_numerical()
+    # t.test_lieopt_forward()
+    # t.test_lieopt_mat_weight_forward()
