@@ -94,7 +94,7 @@ def test_model(pipeline, net, data_loader, dof, std_out):
         for i, data in enumerate(tqdm(data_loader, file=std_out)):
             images, disparities, ids, pose_se3, pose_log = data
             batch_size = images.size(0)
-
+            batch_start_time = time.time()
             try:
                 # Compute the output poses (we use -1 a placeholder as epoch is not relevant).
                 output_se3, saved_data = pipeline.forward(
@@ -154,7 +154,12 @@ def test_model(pipeline, net, data_loader, dof, std_out):
                 stats.add_outputs_targets_log(
                     live_run_id, output_log_np[k, :], target_log_np[k, :]
                 )
+                # Record inliers
                 stats.add_num_inliers(live_run_id, kpt_inliers[k])
+                # Compute the run time for each sample.
+                avg_time = (time.time() - batch_start_time) / batch_size
+                stats.add_run_time(live_run_id, avg_time)
+    #
 
     # Compute errors.
     # RMSE for each pose DOF.
@@ -219,8 +224,13 @@ def test(pipeline, net, test_loaders, results_path, std_out):
             sample_ids = path_stats.get_sample_ids()
 
             # Plot each DOF of the estimated and target poses for each pair of live run localized to map run.
-            plotting.plot_outputs(outputs_log, targets_log, path_name, map_run_id, dof)
-
+            try:
+                plotting.plot_outputs(
+                    outputs_log, targets_log, path_name, map_run_id, dof
+                )
+            except Exception as e:
+                print("Printing error:")
+                print(e)
             # Compute the RMSE for translation and rotation if we are using all 6 DOF.
             # TODO: provide the same for SE(2).
             if len(dof) == 6:

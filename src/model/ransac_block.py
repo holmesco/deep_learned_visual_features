@@ -46,8 +46,15 @@ class RANSACBlock(nn.Module):
         # Maximum number of iterations to run before giving up.
         self.num_iterations = config["outlier_rejection"]["num_iterations"]
 
-        # SVD is used to estimate pose.
-        self.use_sdpr = config["pipeline"]["localization"] == "sdpr"
+        # Instantiate pose estimation
+        self.use_sdpr = (
+            "localization" in config["outlier_rejection"]
+            and config["outlier_rejection"]["localization"] == "sdpr"
+        )
+        self.use_inv_cov_weights = (
+            "use_inv_cov_weights" in config["outlier_rejection"]
+            and config["outlier_rejection"]["use_inv_cov_weights"]
+        )
         if self.use_sdpr:
             self.loc = LocBlock(T_s_v)
         else:
@@ -122,7 +129,9 @@ class RANSACBlock(nn.Module):
             rand_weights = torch.gather(
                 weights.detach(), dim=2, index=rand_index
             )  # 1x1xM
-            if inv_cov_weights is not None:
+            # Only use inverse covariance if it has been computed and it has been turned
+            # on in the config
+            if inv_cov_weights is not None and self.use_inv_cov_weights:
                 rand_index.transpose_(1, 2)
                 rand_inv_cov_weights = torch.gather(
                     inv_cov_weights,

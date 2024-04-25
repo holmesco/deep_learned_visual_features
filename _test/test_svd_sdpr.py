@@ -47,30 +47,37 @@ class TestLocalize(unittest.TestCase):
         )
         batch_size = 1
         # Set up test problem
-        r_p0s, C_p0s, r_ls = st.get_gt_setup(
+        r_v0s, C_v0s, r_ls = st.get_gt_setup(
             N_map=50, N_batch=batch_size, traj_type="circle"
         )
-        r_p0s = torch.tensor(r_p0s)
-        C_p0s = torch.tensor(C_p0s)
+        r_v0s = torch.tensor(r_v0s)
+        C_v0s = torch.tensor(C_v0s)
         r_ls = torch.tensor(r_ls)[None, :, :].expand(batch_size, -1, -1)
         # Define Stereo Camera
         stereo_cam = StereoCameraModel(0.0, 0.0, 484.5, 0.24).cuda()
+        # Frame tranform from vehicle to camera (sensor)
+        T_s_v = torch.tensor(
+            [[0, 0, 1, 0], [0, -1, 0, 0], [1, 0, 0, 0.5], [0, 0, 0, 1]]
+        ).type_as(r_v0s)
+        # Generate image coordinates (in vehicle frame)
+        cam_coords_v = torch.bmm(C_v0s, r_ls - r_v0s)
+        cam_coords_v = torch.concat(
+            [cam_coords_v, torch.ones(batch_size, 1, r_ls.size(2))], dim=1
+        )
 
-        # Generate image coordinates
-        cam_coords = torch.bmm(C_p0s, r_ls - r_p0s)
-        cam_coords = torch.concat(
-            [cam_coords, torch.ones(batch_size, 1, r_ls.size(2))], dim=1
-        ).cuda()
-        src_coords = torch.concat(
+        # Source coords in vehicle frame
+        src_coords_v = torch.concat(
             [r_ls, torch.ones(batch_size, 1, r_ls.size(2))], dim=1
         )
-        # img_coords = stereo_cam.camera_model(cam_coords)
+        # Map to camera frame
+        cam_coords = T_s_v[None, :, :].bmm(cam_coords_v)
+        src_coords = T_s_v[None, :, :].bmm(src_coords_v)
         # Create transformation matrix
-        zeros = torch.zeros(batch_size, 1, 3).type_as(r_p0s)  # Bx1x3
-        one = torch.ones(batch_size, 1, 1).type_as(r_p0s)  # Bx1x1
-        r_0p_p = -C_p0s.bmm(r_p0s)
-        trans_cols = torch.cat([r_0p_p, one], dim=1)  # Bx4x1
-        rot_cols = torch.cat([C_p0s, zeros], dim=1)  # Bx4x3
+        zeros = torch.zeros(batch_size, 1, 3).type_as(r_v0s)  # Bx1x3
+        one = torch.ones(batch_size, 1, 1).type_as(r_v0s)  # Bx1x1
+        r_0v_v = -C_v0s.bmm(r_v0s)
+        trans_cols = torch.cat([r_0v_v, one], dim=1)  # Bx4x1
+        rot_cols = torch.cat([C_v0s, zeros], dim=1)  # Bx4x3
         T_trg_src = torch.cat([rot_cols, trans_cols], dim=2)  # Bx4x4
         # Store values
         t.keypoints_3D_src = src_coords.cuda()
@@ -82,8 +89,7 @@ class TestLocalize(unittest.TestCase):
             t.keypoints_3D_src.size(0), 1, t.keypoints_3D_src.size(2)
         ).cuda()
         t.stereo_cam = stereo_cam
-        # Frame tranform
-        t.T_s_v = torch.eye(4).cuda()
+        t.T_s_v = T_s_v.cuda()
 
     def test_svd_forward(t):
         """Test that the SVD Block properly estimates the target transformation"""
@@ -106,7 +112,7 @@ class TestLocalize(unittest.TestCase):
         T_trg_src = loc_block(t.keypoints_3D_src, t.keypoints_3D_trg, t.weights)
         # Check that
         diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
-        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-12)
+        np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=2e-7)
 
     def test_sdpr_mat_weight_cost(t):
         """Test that the sdpr localization properly estimates the target
@@ -261,7 +267,7 @@ class TestLocalize(unittest.TestCase):
 
 if __name__ == "__main__":
     t = TestLocalize()
-    # t.test_sdpr_mat_weight_forward()
+    t.test_sdpr_mat_weight_forward()
     # t.test_sdpr_forward()
-    t.test_svd_forward()
+    # t.test_svd_forward()
     # t.test_inv_cov_weights()

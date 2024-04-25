@@ -3,19 +3,25 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib import use
 from pandas import DataFrame as df
 
+from data.build_datasets import build_sub_graph
 from src.utils.lie_algebra import se3_log
 from src.utils.statistics import Statistics
 
+use("tkagg")
+
 
 class CompareStats:
-    def __init__(self, home_dir, results_path_old, results_path_new, map_ids):
+    def __init__(self, home_dir, results_paths, labels, map_ids):
         self.home_dir = home_dir
-        self.results_path_old = f"{home_dir}/{results_path_old}/"
-        self.results_path_new = f"{home_dir}/{results_path_new}/"
+        self.results_paths = [f"{home_dir}/{path}/" for path in results_paths]
         self.plot_dir = f"{home_dir}/plots/"
         self.map_ids = map_ids
+        self.labels = labels
+        self.data_dir = f"{self.home_dir}/data/inthedark"
+        self.pose_graph = build_sub_graph(map_ids, self.data_dir)
 
     def load_stats(self, results_dir, map_run_id):
         # Load the stats
@@ -25,8 +31,8 @@ class CompareStats:
         return stats
 
     def compare_inliers_per_run(self, map_run_id=2):
-        stats_1 = self.load_stats(self.results_path_old, map_run_id)
-        stats_2 = self.load_stats(self.results_path_new, map_run_id)
+        stats_1 = self.load_stats(self.results_paths[0], map_run_id)
+        stats_2 = self.load_stats(self.results_paths[1], map_run_id)
         plt.figure()
         for live_id in stats_1.live_run_ids:
             p1 = plt.plot(stats_1.num_inliers[live_id], label=f"Run {live_id} - SVD")
@@ -44,49 +50,153 @@ class CompareStats:
         """
         # Dictionary: [ map_run, live_run, pipeline, avg_num_inliers, rmse_tr, rmse_rot]
         df_list = []
-        for map_run_id in self.map_ids:
-            stats_old = self.load_stats(self.results_path_old, map_run_id)
-            stats_new = self.load_stats(self.results_path_new, map_run_id)
-            for live_run_id in stats_old.live_run_ids:
-                num_inliers_old = np.round(
-                    np.mean(stats_old.num_inliers[live_run_id])
-                ).astype(int)
-                num_inliers_new = np.round(
-                    np.mean(stats_new.num_inliers[live_run_id])
-                ).astype(int)
-                outputs_se3_old = stats_old.outputs_se3[live_run_id]
-                targets_se3_old = stats_old.targets_se3[live_run_id]
-                outputs_se3_new = stats_new.outputs_se3[live_run_id]
-                targets_se3_new = stats_new.targets_se3[live_run_id]
-                rmse_old = rmse(outputs_se3_old, targets_se3_old)
-                rmse_new = rmse(outputs_se3_new, targets_se3_new)
-                df_list.append(
-                    {
-                        "map_run": map_run_id,
-                        "live_run": live_run_id,
-                        "pipeline": "SVD",
-                        "avg_num_inliers": num_inliers_old,
-                        "rmse_tr": rmse_old["rmse_tr"],
-                        "rmse_rot": rmse_old["rmse_rot"],
-                        "x": rmse_old["x"],
-                        "y": rmse_old["y"],
-                        "yaw": rmse_old["yaw"],
-                    }
-                )
-                df_list.append(
-                    {
-                        "map_run": map_run_id,
-                        "live_run": live_run_id,
-                        "pipeline": "SDPR",
-                        "avg_num_inliers": num_inliers_new,
-                        "rmse_tr": rmse_new["rmse_tr"],
-                        "rmse_rot": rmse_new["rmse_rot"],
-                        "x": rmse_new["x"],
-                        "y": rmse_new["y"],
-                        "yaw": rmse_new["yaw"],
-                    }
-                )
+        for i, results_path in enumerate(self.results_paths):
+            for map_run_id in self.map_ids:
+                stats = self.load_stats(results_path, map_run_id)
+                for live_run_id in stats.live_run_ids:
+
+                    num_inliers = np.round(
+                        np.mean(stats.num_inliers[live_run_id])
+                    ).astype(int)
+                    if hasattr(stats, "run_times"):
+                        runtime = np.mean(stats.run_times[live_run_id])
+                    else:
+                        runtime = np.nan
+                    outputs_se3 = stats.outputs_se3[live_run_id]
+                    targets_se3 = stats.targets_se3[live_run_id]
+                    rmse_data = rmse(outputs_se3, targets_se3)
+                    df_list.append(
+                        {
+                            "map_run": map_run_id,
+                            "live_run": live_run_id,
+                            "pipeline": self.labels[i],
+                            "avg_num_inliers": num_inliers,
+                            "rmse_tr": rmse_data["rmse_tr"],
+                            "rmse_rot": rmse_data["rmse_rot"],
+                            "x": rmse_data["x"],
+                            "y": rmse_data["y"],
+                            "yaw": rmse_data["yaw"],
+                            "runtime": runtime,
+                        }
+                    )
+
         return df(df_list)
+
+    def get_poses_abs(self, stats: Statistics, live_run_id, ds_factor=10):
+        """Get absolute poses, with origin at start frame of map run
+
+        Args:
+            stats (_type_): _description_
+            map_run_id (_type_): _description_
+            live_run_id (_type_): _description_
+        """
+        # get relative tranforms
+        T_live_map_est = stats.get_outputs_se3()[live_run_id]
+        T_live_map_gt = stats.get_targets_se3()[live_run_id]
+
+        sample_ids = stats.get_sample_ids()[live_run_id]
+        poses_est = []
+        poses_gt = []
+
+        for i, id in enumerate(sample_ids):
+            if i % ds_factor == 0:
+                # Parse id
+                parsed_id = id.split("-")
+                map_id, map_pose_id = int(parsed_id[-2]), int(parsed_id[-1])
+                # Get closest map point
+                T_iMap_0 = self.pose_graph.get_transform(
+                    (map_id, 0), (map_id, map_pose_id)
+                )
+                T_iMap_0 = T_iMap_0.matrix
+                # Get absolute tranforms
+                T_iLive_0_est = T_live_map_est[i] @ T_iMap_0
+                T_iLive_0_gt = T_live_map_gt[i] @ T_iMap_0
+                T_0_iLive_est = np.linalg.inv(T_iLive_0_est)
+                T_0_iLive_gt = np.linalg.inv(T_iLive_0_gt)
+                # add to list
+                poses_est.append(T_0_iLive_est)
+                poses_gt.append(T_0_iLive_gt)
+
+        return poses_est, poses_gt
+
+    def plot_trajectories(self, map_run_id, live_run_id, inds=None):
+        # load stats
+        stats = self.load_stats(self.results_paths[0], map_run_id)
+        # get absolute trajectories
+        poses_est, poses_gt = self.get_poses_abs(stats, live_run_id)
+        # Limit run indices
+        if inds is not None:
+            poses_est = poses_est[inds]
+            poses_gt = poses_gt[inds]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        self.plot_trajectory(
+            ax, poses_gt, axis_alpha=0.1, trace_color="m", trace_alpha=0.3
+        )
+        self.plot_trajectory(
+            ax, poses_est, axis_alpha=1.0, trace_color="k", trace_alpha=0.3
+        )
+        # Make box the right size
+        ax.set_box_aspect(
+            [
+                np.ptp(np.stack(poses_est)[:, 0, 3]),
+                np.ptp(np.stack(poses_est)[:, 1, 3]),
+                np.ptp(np.stack(poses_est)[:, 2, 3]),
+            ]
+        )
+        # remove background of plot
+        # ax.set_axis_off()
+
+        return fig
+
+    @staticmethod
+    def plot_trajectory(ax, poses, axis_alpha=0.7, trace_color="k", trace_alpha=0.5):
+        """Plots a trajectory of poses. Assumes poses transform from world to vehicle frame."""
+        origin_prev = None
+        for i, T in enumerate(poses):
+            x_axis = T[:3, 0]
+            y_axis = T[:3, 1]
+            z_axis = T[:3, 2]
+            origin = T[:3, 3]
+
+            # Plot the original and transformed coordinate axes
+
+            length = 1.0
+            ax.quiver(
+                *origin,
+                *x_axis,
+                color="r",
+                alpha=axis_alpha,
+                length=length,
+            )
+            ax.quiver(
+                *origin,
+                *y_axis,
+                color="g",
+                alpha=axis_alpha,
+                length=length,
+            )
+            ax.quiver(
+                *origin,
+                *z_axis,
+                color="b",
+                alpha=axis_alpha,
+                length=length,
+            )
+
+            # plot tracer line along trajectory
+            if i > 0:
+                line = np.array([origin_prev, origin])
+                ax.plot(
+                    line[:, 0],
+                    line[:, 1],
+                    line[:, 2],
+                    color=trace_color,
+                    alpha=trace_alpha,
+                )
+            # Store previous origin
+            origin_prev = origin.copy()
 
 
 def rmse(outputs_se3, targets_se3):
@@ -137,15 +247,15 @@ def rmse(outputs_se3, targets_se3):
     return rmse_dict
 
 
-if __name__ == "__main__":
-    results_path_old = "results/test_svd/inthedark"
-    results_path_new = "results/test_sdpr_v1/inthedark"
+def print_tables_RSS():
+    results_paths = ["results/test_svd/inthedark", "results/test_sdpr_v1/inthedark"]
+    labels = ["SVD", "SDPR"]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [2, 11, 16, 17, 23, 28]
     compare_stats = CompareStats(
         home,
-        results_path_old=results_path_old,
-        results_path_new=results_path_new,
+        results_paths=results_paths,
+        labels=labels,
         map_ids=map_ids,
     )
     stats = compare_stats.get_aggregate_stats()
@@ -159,3 +269,57 @@ if __name__ == "__main__":
     stats_avg = stats.groupby(["pipeline"]).mean().drop(labels=["map_run"], axis=1)
     latex_tbl = stats_avg.to_latex(float_format="%.3f")
     print(latex_tbl)
+
+
+def print_tables_TRO():
+    results_paths = [
+        "results/TRO_test_baseline/inthedark",
+        "results/TRO_test_sdpr_nomat/inthedark",
+        "results/TRO_test_sdpr/inthedark",
+    ]
+    labels = ["Baseline", "SDPR No Mat", "SDPR"]
+    home = "/home/cho/projects/deep_learned_visual_features"
+    map_ids = [0, 1, 2]
+    compare_stats = CompareStats(
+        home,
+        results_paths=results_paths,
+        labels=labels,
+        map_ids=map_ids,
+    )
+    stats = compare_stats.get_aggregate_stats()
+
+    print("Full Table:")
+    stats.drop(labels=["rmse_tr", "rmse_rot"], axis=1, inplace=True)
+    latex_tbl = stats.to_latex(float_format="%.3f", index=False)
+    print(latex_tbl)
+
+    print("Aggregated Table:")
+    stats_avg = stats.groupby(["pipeline"]).mean().drop(labels=["map_run"], axis=1)
+    latex_tbl = stats_avg.to_latex(float_format="%.3f")
+    print(latex_tbl)
+
+
+def plot_traj_TRO():
+
+    results_paths = ["results/TRO_test_sdpr/inthedark"]
+    labels = ["SDPR"]
+    home = "/home/cho/projects/deep_learned_visual_features"
+    map_ids = [0, 1, 2, 3]
+    compare_stats = CompareStats(
+        home,
+        results_paths=results_paths,
+        labels=labels,
+        map_ids=map_ids,
+    )
+    # full trajectory
+    fig = compare_stats.plot_trajectories(0, "1")
+    # zoomed trajectory
+    fig_zoom = compare_stats.plot_trajectories(0, "1", slice(70, 90))
+    plt.show()
+    print("done")
+
+
+if __name__ == "__main__":
+    plot_traj_TRO()
+    # print_tables_RSS()
+    # print_tables_TRO()

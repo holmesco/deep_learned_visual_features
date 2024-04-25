@@ -34,13 +34,14 @@ class LocBlock(nn.Module):
         self.sdprlayer = SDPRLayer(n_vars=13, constraints=constraints)
 
         self.register_buffer("T_s_v", T_s_v)
+        tol = 1e-12
         self.mosek_params = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": 1000,
-            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_MU_RED": 1e-14,
-            "MSK_DPAR_INTPNT_CO_TOL_INFEAS": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": 1e-12,
+            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_MU_RED": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_INFEAS": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": tol,
         }
 
     def forward(
