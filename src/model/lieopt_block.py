@@ -50,21 +50,20 @@ class LieOptBlock(nn.Module):
             dim=N_map * 3,
             err_fn=self.error_fn_vec,
             aux_vars=aux_vars,
-            cost_weight=th.ScaleCostWeight(np.sqrt(2)),
+            cost_weight=th.ScaleCostWeight(float(np.sqrt(2))),
             name="registration_cost",
         )
         objective.add(cost_function)
 
-        # Build layer
+        # Optimization parameters
         opt_kwargs = {
-            "abs_err_tolerance": 1e-12,
-            "rel_err_tolerance": 1e-12,
+            "abs_err_tolerance": 1e-8,
+            "rel_err_tolerance": 1e-8,
             "max_iterations": 100,
         }
         opt_kwargs.update(opt_kwargs_in)
-
+        # Build layer
         self.th_layer = th.TheseusLayer(th.GaussNewton(objective, **opt_kwargs))
-        self.th_layer.cuda()
 
     @staticmethod
     def error_fn_vec(optim_vars, aux_vars):
@@ -107,7 +106,7 @@ class LieOptBlock(nn.Module):
         weights,
         T_trg_src_init,
         inv_cov_weights=None,
-        verbose=False,
+        verbose=True,
     ):
         """
         Compute the pose, T_trg_src, from the source to the target frame.
@@ -141,7 +140,6 @@ class LieOptBlock(nn.Module):
             optimizer_kwargs={
                 "track_best_solution": True,
                 "verbose": verbose,
-                "backward_mode": "implicit",
             },
         )
         # Get variables from theseus output
@@ -161,6 +159,12 @@ class LieOptBlock(nn.Module):
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.th_layer.to(*args, **kwargs)
+
+    def cuda(self, device=None):
+        super().cuda(device=device)
+        if device is None:
+            device = torch.cuda.current_device()
+        self.th_layer.to(f"cuda:{device}")
 
     @staticmethod
     def plot_points(s_in, t_in, w_in):

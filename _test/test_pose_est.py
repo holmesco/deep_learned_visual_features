@@ -166,7 +166,8 @@ class TestLocalize(unittest.TestCase):
 
         # Instantiate
         lie_block = LieOptBlock(t.T_s_v, 1, 50)
-        lie_block.to(t.device)
+        # lie_block.to(t.device)
+        lie_block.cuda()
         # Run with ground truth initialization
         T_trg_src = lie_block(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, t.T_trg_src.cuda()
@@ -346,9 +347,9 @@ class TestLocalize(unittest.TestCase):
 if __name__ == "__main__":
     t = TestLocalize()
     # t.test_sdpr_mat_weight_forward()
-    t.test_sdpr_mat_weight_cost()
+    # t.test_sdpr_mat_weight_cost()
     # t.test_sdpr_forward()
     # t.test_inv_cov_weights()
     # t.test_inv_cov_numerical()
-    # t.test_lieopt_forward()
+    t.test_lieopt_forward()
     # t.test_lieopt_mat_weight_forward()

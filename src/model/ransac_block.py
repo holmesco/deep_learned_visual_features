@@ -206,4 +206,4 @@ class RANSACBlock(nn.Module):
 
             i += 1
 
-        return inliers
+        return inliers, T_trg_src_cam

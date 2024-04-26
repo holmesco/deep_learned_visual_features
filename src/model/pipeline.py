@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.profiler import record_function
 
 from src.model.keypoint_block import KeypointBlock
+from src.model.lieopt_block import LieOptBlock
 from src.model.matcher_block import MatcherBlock
 from src.model.ransac_block import RANSACBlock
 from src.model.sdpr_block import SDPRBlock
@@ -46,6 +47,10 @@ class Pipeline(nn.Module):
         self.height = config["dataset"]["height"]
         self.width = config["dataset"]["width"]
 
+        # Number of features
+        self.N_kpts = int(self.height / self.window_h * self.width / self.window_w)
+        self.batch_size = config["data_loader"]["batch_size"]
+
         # Transform from sensor to vehicle.
         T_s_v = torch.tensor(
             [
@@ -65,6 +70,7 @@ class Pipeline(nn.Module):
         self.weight_block = WeightBlock()
         self.svd_block = SVDBlock(self.T_s_v)
         self.sdpr_block = SDPRBlock(self.T_s_v)
+        self.lieopt_block = LieOptBlock(self.T_s_v, self.batch_size, self.N_kpts)
         self.ransac_block = RANSACBlock(config, self.T_s_v)
 
         self.stereo_cam = StereoCameraModel(
@@ -217,8 +223,6 @@ class Pipeline(nn.Module):
                 kpt_scores_src,
                 kpt_scores_pseudo,
             )
-            # Find the inliers either by using the ground truth pose (training) or RANSAC (inference).
-            valid_inliers = torch.ones(kpt_valid_src.size()).type_as(kpt_valid_src)
 
             # Compute inverse covariance weightings
             # NOTE: Assume that all of the variation is lumped on the pseudo targets
@@ -228,7 +232,7 @@ class Pipeline(nn.Module):
             ):
                 inv_cov_weights, cov = get_inv_cov_weights(
                     kpt_3D=kpt_3D_pseudo,
-                    valid=valid_inliers,
+                    valid=kpt_valid_pseudo,
                     stereo_cam=self.stereo_cam,
                 )
                 # Detach weights so that they don't mess with the gradient computation
@@ -240,6 +244,9 @@ class Pipeline(nn.Module):
         # Outlier rejection
         ################################################################################################################
         with record_function("Outlier rejection"):
+
+            # Find the inliers either by using the ground truth pose (training) or RANSAC (inference).
+            valid_inliers = torch.ones(kpt_valid_src.size()).type_as(kpt_valid_src)
 
             if self.config["outlier_rejection"]["on"] and (
                 self.config["outlier_rejection"]["type"] == "ground_truth"
@@ -337,7 +344,7 @@ class Pipeline(nn.Module):
                 self.config["outlier_rejection"]["type"] == "ransac"
             ):
                 # Find outlier based on RANSAC.
-                ransac_inliers = self.ransac_block(
+                ransac_inliers, T_trg_src_cam = self.ransac_block(
                     kpt_3D_src,
                     kpt_3D_pseudo,
                     kpt_2D_pseudo,
@@ -372,6 +379,16 @@ class Pipeline(nn.Module):
                     T_trg_src = self.sdpr_block(
                         kpt_3D_src, kpt_3D_pseudo, weights, inv_cov_weights
                     )
+                elif self.config["pipeline"]["localization"] == "lieopt":
+                    T_trg_src_init = T_trg_src_cam
+                    T_trg_src = self.lieopt_block(
+                        kpt_3D_src,
+                        kpt_3D_pseudo,
+                        weights,
+                        T_trg_src_init,
+                        inv_cov_weights,
+                    )
+
                 else:
                     raise ValueError("Localization configuration unknown")
 
@@ -501,3 +518,11 @@ class Pipeline(nn.Module):
         trans_loss = loss_fn(T_est[:, 0:3, 3], T[:, 0:3, 3])
 
         return rot_loss, trans_loss
+
+    def cuda(self, device=None):
+        # This is required because Theseus does not have a proper cuda function/
+        super().cuda(device=device)
+        if device is None:
+            device = torch.cuda.current_device()
+        self.lieopt_block.to(f"cuda:{device}")
+        return self
