@@ -35,7 +35,7 @@ class SDPRBlock(nn.Module):
         self.sdprlayer = SDPRLayer(n_vars=13, constraints=constraints)
 
         self.register_buffer("T_s_v", T_s_v)
-        tol = 1e-14
+        tol = 1e-10
         self.mosek_params = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": 1000,
             "MSK_DPAR_INTPNT_CO_TOL_PFEAS": tol,

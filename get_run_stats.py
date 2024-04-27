@@ -1,3 +1,4 @@
+import os
 import pickle
 
 import matplotlib.pyplot as plt
@@ -64,31 +65,56 @@ class CompareStats:
                         runtime = np.nan
                     outputs_se3 = stats.outputs_se3[live_run_id]
                     targets_se3 = stats.targets_se3[live_run_id]
-                    rmse_data = rmse(outputs_se3, targets_se3)
-                    df_list.append(
-                        {
-                            "map_run": map_run_id,
-                            "live_run": live_run_id,
-                            "pipeline": self.labels[i],
-                            "avg_num_inliers": num_inliers,
-                            "rmse_tr": rmse_data["rmse_tr"],
-                            "rmse_rot": rmse_data["rmse_rot"],
-                            "x": rmse_data["x"],
-                            "y": rmse_data["y"],
-                            "yaw": rmse_data["yaw"],
-                            "runtime": runtime,
-                        }
+                    res_dict = {
+                        "map_run": map_run_id,
+                        "live_run": live_run_id,
+                        "pipeline": self.labels[i],
+                        "avg_num_inliers": num_inliers,
+                        "runtime": runtime,
+                    }
+                    # If getting local optimizer results then filter local minima
+                    filter = "local" in self.labels[i].lower()
+                    # Get RMSE data
+                    rmse_data, rmse_data_filt = rmse(
+                        outputs_se3, targets_se3, filter=filter
                     )
+                    # Store data
+                    df_list.append(res_dict | rmse_data)
+                    # if filtered data is available, also store
+                    if rmse_data_filt is not None:
+                        res_dict_filt = res_dict.copy()
+                        res_dict_filt["pipeline"] = (
+                            res_dict_filt["pipeline"] + " (filtered)"
+                        )
+                        df_list.append(res_dict_filt | rmse_data_filt)
 
         return df(df_list)
 
-    def get_poses_abs(self, stats: Statistics, live_run_id, ds_factor=10):
+    def find_local_minima(self, map_run_id, live_run_id):
+        """Search for indices of local minima in a given run
+
+        Args:
+            stats (Statistics): _description_
+            live_run_id (_type_): _description_
+        """
+        # Assume the first set of results is the local solver
+        stats = self.load_stats(self.results_paths[0], map_run_id)
+        est = stats.get_outputs_se3()[live_run_id]
+        trg = stats.get_targets_se3()[live_run_id]
+        diffs = se3_log(torch.tensor(est).inverse().bmm(torch.tensor(trg)))
+        local_min = torch.abs(diffs[:, 5]) > 0.1
+        indices = [i for i in range(len(local_min)) if local_min[i]]
+        return indices
+
+    def get_poses_abs(self, stats: Statistics, live_run_id, ds_factor=10, add_inds=[]):
         """Get absolute poses, with origin at start frame of map run
 
         Args:
-            stats (_type_): _description_
-            map_run_id (_type_): _description_
-            live_run_id (_type_): _description_
+            stats (_type_): statistics object
+            map_run_id (_type_): map run id
+            live_run_id (_type_): live run id
+            ds_factor : downsampling factor
+            add_inds : list of additional indices to add (for local minima)
         """
         # get relative tranforms
         T_live_map_est = stats.get_outputs_se3()[live_run_id]
@@ -99,7 +125,7 @@ class CompareStats:
         poses_gt = []
 
         for i, id in enumerate(sample_ids):
-            if i % ds_factor == 0:
+            if i % ds_factor == 0 or i in add_inds:
                 # Parse id
                 parsed_id = id.split("-")
                 map_id, map_pose_id = int(parsed_id[-2]), int(parsed_id[-1])
@@ -120,7 +146,13 @@ class CompareStats:
         return poses_est, poses_gt
 
     def plot_trajectories(
-        self, map_run_id, live_run_id, ds_factor=10, frame_colors=None, inds=None
+        self,
+        map_run_id,
+        live_run_id,
+        ds_factor=10,
+        frame_colors=None,
+        inds=None,
+        add_inds=[],
     ):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
@@ -131,7 +163,7 @@ class CompareStats:
             stats = self.load_stats(results_path, map_run_id)
             # get absolute trajectories
             poses_est, poses_gt = self.get_poses_abs(
-                stats, live_run_id, ds_factor=ds_factor
+                stats, live_run_id, ds_factor=ds_factor, add_inds=add_inds
             )
             # Limit run indices
             if inds is not None:
@@ -141,26 +173,26 @@ class CompareStats:
             self.plot_trajectory(
                 ax,
                 poses_est,
-                axis_alpha=1.0,
+                axis_alpha=0.9,
                 trace_color="m",
                 trace_alpha=0.3,
                 frame_color=frame_colors[i],
             )
         self.plot_trajectory(
-            ax, poses_gt, axis_alpha=0.1, trace_color="k", trace_alpha=0.3
+            ax, poses_gt, axis_alpha=0.2, trace_color="k", trace_alpha=0.3
         )
         # Make box the right size
         ax.set_box_aspect(
             [
-                np.ptp(np.stack(poses_est)[:, 0, 3]),
-                np.ptp(np.stack(poses_est)[:, 1, 3]),
-                np.ptp(np.stack(poses_est)[:, 2, 3]),
+                np.ptp(np.stack(poses_gt)[:, 0, 3]),
+                np.ptp(np.stack(poses_gt)[:, 1, 3]),
+                np.ptp(np.stack(poses_gt)[:, 2, 3]),
             ]
         )
         # remove background of plot
         # ax.set_axis_off()
 
-        return fig
+        return fig, ax
 
     @staticmethod
     def plot_trajectory(
@@ -213,8 +245,44 @@ class CompareStats:
             # Store previous origin
             origin_prev = origin.copy()
 
+    def savefig(self, fig, name, dpi=600):
 
-def rmse(outputs_se3, targets_se3):
+        directory = f"{self.home_dir}/plots/"
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        fig.savefig(f"{directory}/{name}.png", format="png", dpi=dpi, transparent=True)
+
+
+def set_axes_equal(ax):
+    """
+    Make axes of 3D plot have equal scale so that spheres appear as spheres,
+    cubes as cubes, etc.
+
+    Input
+      ax: a matplotlib axis, e.g., as output from plt.gca().
+    """
+
+    x_limits = ax.get_xlim3d()
+    y_limits = ax.get_ylim3d()
+    z_limits = ax.get_zlim3d()
+
+    x_range = abs(x_limits[1] - x_limits[0])
+    x_middle = np.mean(x_limits)
+    y_range = abs(y_limits[1] - y_limits[0])
+    y_middle = np.mean(y_limits)
+    z_range = abs(z_limits[1] - z_limits[0])
+    z_middle = np.mean(z_limits)
+
+    # The plot bounding box is a sphere in the sense of the infinity
+    # norm, hence I call half the max range the plot radius.
+    plot_radius = 0.5 * max([x_range, y_range, z_range])
+
+    ax.set_xlim3d([x_middle - plot_radius, x_middle + plot_radius])
+    ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
+    ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
+
+
+def rmse(outputs_se3, targets_se3, filter=False):
     """
     Compute the rotation and translation RMSE for the SE(3) poses provided. Compute RMSE for ich live run
     individually.
@@ -225,7 +293,6 @@ def rmse(outputs_se3, targets_se3):
         outputs_se3 (dict): map from id of the localized live run to a list of ground truth pose transforms
                             represented as 4x4 numpy arrays.
     """
-    rmse_dict = {}
 
     out_mat = torch.from_numpy(np.stack(outputs_se3, axis=0))
     trg_mat = torch.from_numpy(np.stack(targets_se3, axis=0))
@@ -240,26 +307,41 @@ def rmse(outputs_se3, targets_se3):
         + (diff_tr[:, 1] * diff_tr[:, 1])
         + (diff_tr[:, 2] * diff_tr[:, 2])
     )
-    rmse_tr = np.sqrt(np.mean(err_tr_sq, axis=0))
 
     d = torch.acos(
         (0.5 * (diff_R[:, 0, 0] + diff_R[:, 1, 1] + diff_R[:, 2, 2] - 1.0)).clamp(
             -1 + 1e-6, 1 - 1e-6
         )
     )
-    rmse_rot = np.sqrt(np.mean(np.rad2deg(d.numpy()) ** 2, axis=0))
+
     # Just get errors on important axes (as in actual runs)
     errors = se3_log(out_mat.inverse().bmm(trg_mat))
     errors[:, 3:6] = np.rad2deg(errors[:, 3:6])
-    test_errors = np.sqrt(np.mean(errors.numpy() ** 2, axis=0))
 
-    rmse_dict["rmse_tr"] = rmse_tr
-    rmse_dict["rmse_rot"] = rmse_rot
+    # Compute RMSE
+    if filter:
+        # filter local mins based on heading angle
+        valid = torch.abs(errors[:, 5]) < 3.0
+        rmse_dict_filt = {}
+        test_errors_filt = np.sqrt(np.mean(errors[valid, :].numpy() ** 2, axis=0))
+        rmse_dict_filt["x"] = test_errors_filt[0]
+        rmse_dict_filt["y"] = test_errors_filt[1]
+        rmse_dict_filt["yaw"] = test_errors_filt[5]
+    else:
+        rmse_dict_filt = None
+
+    rmse_dict = {}
+    test_errors = np.sqrt(np.mean(errors.numpy() ** 2, axis=0))
     rmse_dict["x"] = test_errors[0]
     rmse_dict["y"] = test_errors[1]
     rmse_dict["yaw"] = test_errors[5]
 
-    return rmse_dict
+    # rmse_tr = np.sqrt(np.mean(err_tr_sq, axis=0))
+    # rmse_rot = np.sqrt(np.mean(np.rad2deg(d.numpy()) ** 2, axis=0))
+    # rmse_dict["rmse_tr"] = rmse_tr
+    # rmse_dict["rmse_rot"] = rmse_rot
+
+    return rmse_dict, rmse_dict_filt
 
 
 def print_tables_RSS():
@@ -289,11 +371,10 @@ def print_tables_RSS():
 def print_tables_TRO():
     results_paths = [
         "results/TRO_test_baseline/inthedark",
-        "results/TRO_test_sdpr_nomat/inthedark",
-        "results/TRO_test_sdpr/inthedark",
-        "results/TRO_test_svdRANSAC_sdp/inthedark",
+        "results/TRO_test_sdp/inthedark",
+        "results/TRO_test_lieopt/inthedark",
     ]
-    labels = ["Baseline", "SDPR No Mat", "SDPR", "SVD-RANSAC-SDPR"]
+    labels = ["Baseline", "Global", "Local"]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [0, 1, 2]
     compare_stats = CompareStats(
@@ -305,7 +386,8 @@ def print_tables_TRO():
     stats = compare_stats.get_aggregate_stats()
 
     print("Full Table:")
-    stats.drop(labels=["rmse_tr", "rmse_rot"], axis=1, inplace=True)
+    stats.sort_values(["map_run", "live_run"], inplace=True)
+    stats.drop("avg_num_inliers", axis=1, inplace=True)
     latex_tbl = stats.to_latex(float_format="%.3f", index=False)
     print(latex_tbl)
 
@@ -318,11 +400,12 @@ def print_tables_TRO():
 def plot_traj_TRO(ds_factor=10):
 
     results_paths = [
+        "results/TRO_test_lieopt/inthedark",
+        "results/TRO_test_sdp/inthedark",
         "results/TRO_test_baseline/inthedark",
-        "results/TRO_test_sdpr_nomat/inthedark",
     ]
-    labels = ["baseline", "sdpr"]
-    colors = [["r", "r", "r"], ["b", "b", "b"]]
+    labels = ["lieopt", "sdp", "baseline"]
+    colors = [["b", "b", "b"], ["r", "r", "r"], ["g", "g", "g"]]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [0, 1, 2, 3]
     compare_stats = CompareStats(
@@ -331,16 +414,55 @@ def plot_traj_TRO(ds_factor=10):
         labels=labels,
         map_ids=map_ids,
     )
+    # Find local minima
+    map_id, live_id = 0, "2"
+    add_inds = compare_stats.find_local_minima(map_id, live_id)
     # full trajectory
-    fig = compare_stats.plot_trajectories(
-        0, "1", ds_factor=ds_factor, frame_colors=colors
+    fig, ax = compare_stats.plot_trajectories(
+        map_id, live_id, ds_factor=ds_factor, frame_colors=colors, add_inds=add_inds
     )
+    fig.set_size_inches(10, 10)
+    plt.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
+    ax.view_init(azim=-107.25, elev=52.12, roll=0.0)
+    ax.set_axis_off()
+    compare_stats.savefig(fig, "traj_map0live2", dpi=600)
 
-    plt.show()
-    print("done")
+
+def plot_local_mins():
+    """Plot the first local minimum that can be found from the result set"""
+
+    results_paths = [
+        "results/TRO_test_lieopt/inthedark",
+        "results/TRO_test_sdp/inthedark",
+        "results/TRO_test_baseline/inthedark",
+    ]
+    labels = ["lieopt", "sdp", "baseline"]
+    colors = [["b", "b", "b"], ["r", "r", "r"], ["g", "g", "g"]]
+    home = "/home/cho/projects/deep_learned_visual_features"
+    map_ids = [0, 1, 2, 3]
+    compare_stats = CompareStats(
+        home,
+        results_paths=results_paths,
+        labels=labels,
+        map_ids=map_ids,
+    )
+    indices = compare_stats.find_local_minima(0, "2")
+    if len(indices) > 0:
+        plt_inds = slice(indices[0] - 10, indices[0] + 10)
+        fig, ax = compare_stats.plot_trajectories(
+            0, "2", ds_factor=1, frame_colors=colors, inds=plt_inds
+        )
+        # Equalize axes
+        ax.set_box_aspect([1, 1, 1])
+        set_axes_equal(ax)
+        ax.set_axis_off()
+        ax.view_init(azim=-110.0, elev=29.5, roll=0.0)
+
+        compare_stats.savefig(fig, "local_min_map0live2")
 
 
 if __name__ == "__main__":
     # plot_traj_TRO()
+    # plot_local_mins()
     # print_tables_RSS()
     print_tables_TRO()

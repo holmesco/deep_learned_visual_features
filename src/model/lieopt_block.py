@@ -57,9 +57,9 @@ class LieOptBlock(nn.Module):
 
         # Optimization parameters
         opt_kwargs = {
-            "abs_err_tolerance": 1e-8,
-            "rel_err_tolerance": 1e-8,
-            "max_iterations": 100,
+            "abs_err_tolerance": 1e-9,
+            "rel_err_tolerance": 1e-9,
+            "max_iterations": 200,
         }
         opt_kwargs.update(opt_kwargs_in)
         # Build layer
