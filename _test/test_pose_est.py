@@ -230,7 +230,7 @@ class TestLocalize(unittest.TestCase):
         diff = se3_log(se3_inv(T_trg_src.cpu()).bmm(t.T_trg_src)).numpy()
         np.testing.assert_allclose(diff, np.zeros((1, 6)), atol=1e-10)
 
-    def test_inv_cov_numerical(t):
+    def test_inv_cov_numerical(t, plot=False):
         N_pts = 1000
         # get random point
         pt = torch.tensor([3.0, 3.0, 3.0, 1.0])[None, :, None].cuda()
@@ -240,7 +240,7 @@ class TestLocalize(unittest.TestCase):
         noise_pxl = torch.randn(1, 4, N_pts) * t.stereo_cam.sigma
         pixel_noisy = pixel_gt.expand(1, -1, N_pts) + noise_pxl.cuda()
         # Convert back to 3D
-        disparity = pixel_noisy[0, 2, :] - pixel_noisy[0, 0, :]
+        disparity = pixel_noisy[0, 0, :] - pixel_noisy[0, 2, :]
         pt_noisy = t.get_cam_points(pixel_noisy, disparity, t.stereo_cam.Q)
         noise_pt = (pt_noisy - torch.mean(pt_noisy, dim=2, keepdim=True))[:, :3, :]
         cov = torch.matmul(noise_pt, noise_pt.transpose(1, 2)) / (N_pts - 1)
@@ -252,21 +252,22 @@ class TestLocalize(unittest.TestCase):
         cov = cov[0].cpu().detach().numpy()
         pt = pt.cpu().detach().numpy()
         noise_pt = noise_pt.cpu().detach().numpy()
-        # # Plot covariance
-        # plt.figure()
-        # ax = plt.axes(projection="3d")
-        # # plot measurements in camera frame
-        # plot_ellipsoid(np.zeros((3, 1)), cov_cam, ax=ax, color="r")
-        # plot_ellipsoid(np.zeros((3, 1)), cov, ax=ax, color="b")
-        # ax.scatter3D(
-        #     noise_pt[0, 0, :],
-        #     noise_pt[0, 1, :],
-        #     noise_pt[0, 2, :],
-        #     marker=".",
-        #     color="black",
-        #     alpha=0.5,
-        # )
-        # plt.show()
+        if plot:
+            # Plot covariance
+            plt.figure()
+            ax = plt.axes(projection="3d")
+            # plot measurements in camera frame
+            plot_ellipsoid(np.zeros((3, 1)), cov_cam, ax=ax, color="r")
+            plot_ellipsoid(np.zeros((3, 1)), cov, ax=ax, color="b")
+            ax.scatter3D(
+                noise_pt[0, 0, :],
+                noise_pt[0, 1, :],
+                noise_pt[0, 2, :],
+                marker=".",
+                color="black",
+                alpha=0.5,
+            )
+            plt.show()
 
         # Compare covariances
         np.testing.assert_allclose(cov_cam, cov, atol=1e-4)
@@ -349,7 +350,7 @@ if __name__ == "__main__":
     # t.test_sdpr_mat_weight_forward()
     # t.test_sdpr_mat_weight_cost()
     # t.test_sdpr_forward()
-    # t.test_inv_cov_weights()
-    # t.test_inv_cov_numerical()
-    t.test_lieopt_forward()
+    t.test_inv_cov_weights()
+    t.test_inv_cov_numerical(plot=True)
+    # t.test_lieopt_forward()
     # t.test_lieopt_mat_weight_forward()

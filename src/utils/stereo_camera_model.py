@@ -8,7 +8,7 @@ class StereoCameraModel(nn.Module):
     The stereo camera model.
     """
 
-    def __init__(self, cu, cv, f, b, sigma=0.5):
+    def __init__(self, cu, cv, f, b, sigma=0.5, debug=False):
         """
         Set up the stereo camera model with the stereo camera parameters.
 
@@ -17,6 +17,8 @@ class StereoCameraModel(nn.Module):
             cv (float): optical centre v coordinate.
             f (float): focal length.
             b (float): stereo camera base line.
+            sigma (float) : assumed pixel noise std dev
+            debug (bool) : debugging flag
         """
         super(StereoCameraModel, self).__init__()
 
@@ -25,11 +27,29 @@ class StereoCameraModel(nn.Module):
         self.f = f
         self.b = b
         self.sigma = sigma
+        self.debug = debug
+
+        # Covariance matrix in pixel space for left camera coordinates and disparity
+        cov_pxl = (
+            torch.tensor(
+                [
+                    [1.0, 0.0, 1.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 0.0, 2.0],
+                ]
+            )
+            * sigma**2
+        )
 
         # Matrices for camera model needed to projecting/reprojecting between the camera and image frames
         M, Q = self.set_camera_model_matrices(self.cu, self.cv, self.f, self.b)
+
+        # Register buffers
         self.register_buffer("M", M)
         self.register_buffer("Q", Q)
+        self.register_buffer("f_tensor", torch.tensor(self.f))
+        self.register_buffer("b_tensor", torch.tensor(self.b))
+        self.register_buffer("cov_pxl", cov_pxl)
 
     def set_camera_model_matrices(self, cu, cv, f, b):
         """
@@ -181,8 +201,11 @@ class StereoCameraModel(nn.Module):
         batch_size, height, width = disparity.size()
         disparity = disparity.unsqueeze(1)
         num_points = img_coords.size(2)
+        ones = torch.ones(
+            batch_size, num_points, device=disparity.device, dtype=disparity.dtype
+        )
 
-        if torch.sum(disparity == 0.0) > 0:
+        if self.debug and torch.sum(disparity == 0.0) > 0:
             print("Warning: 0.0 in disparities.")
 
         # Sample disparity for the image coordinates.
@@ -201,7 +224,6 @@ class StereoCameraModel(nn.Module):
         valid_points = self.check_valid_disparity(point_disparities)  # Bx1xN
 
         # Create the [ul, vl, d, 1] vector
-        ones = torch.ones(batch_size, num_points).type_as(disparity)
         uvd1_pixel_coords = torch.stack(
             (
                 img_coords[:, 0, :],
@@ -242,10 +264,11 @@ class StereoCameraModel(nn.Module):
         # Get the 3D camera coordinates.
         cam_coords, valid_points = self.image_to_camera(img_coords, disparity, Q)
 
-        if (torch.sum(torch.isnan(cam_coords)) > 0) or (
-            torch.sum(torch.isinf(cam_coords)) > 0
-        ):
-            print("Warning: Nan or Inf values in camera coordinate tensor.")
-            raise ValueError("Nan or Inf in camera coordinates")
+        if self.debug:
+            if (torch.sum(torch.isnan(cam_coords)) > 0) or (
+                torch.sum(torch.isinf(cam_coords)) > 0
+            ):
+                print("Warning: Nan or Inf values in camera coordinate tensor.")
+                raise ValueError("Nan or Inf in camera coordinates")
 
         return cam_coords, valid_points

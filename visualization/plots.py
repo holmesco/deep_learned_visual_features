@@ -181,6 +181,6 @@ def plot_ellipsoid(bias, cov, ax=None, color="b", stds=3, label: str = None):
         *ellipsoid, rstride=4, cstride=4, color=color, alpha=0.25, label=label
     )
     # These lines required for legend
-    surf._edgecolors = surf._edgecolors3d
-    surf._facecolors = surf._facecolors3d
+    # surf._edgecolors = surf._edgecolors3d
+    # surf._facecolors = surf._facecolors3d
     return surf

@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from poly_matrix import PolyMatrix
 from sdprlayer import SDPRLayer
+from torch.profiler import record_function
 
 from src.utils.lie_algebra import se3_inv, se3_log
 
@@ -69,9 +70,10 @@ class SDPRBlock(nn.Module):
         batch_size, _, n_points = keypoints_3D_src.size()
 
         # Construct objective function
-        Qs, scale, offset = self.get_obj_matrix_vec(
-            keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights
-        )
+        with record_function("SDPR: Build Cost Matrix"):
+            Qs, scale, offset = self.get_obj_matrix_vec(
+                keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights
+            )
         # Set up solver parameters
         # solver_args = {
         #     "solve_method": "SCS",
@@ -86,7 +88,8 @@ class SDPRBlock(nn.Module):
             "verbose": verbose,
         }
         # Run layer
-        X, x = self.sdprlayer(Qs, solver_args=solver_args)
+        with record_function("SDPR: Run Optimization"):
+            X, x = self.sdprlayer(Qs, solver_args=solver_args)
         # Extract solution
         t_trg_src_intrg = x[:, 9:]
         R_trg_src = torch.reshape(x[:, 0:9], (-1, 3, 3)).transpose(-1, -2)

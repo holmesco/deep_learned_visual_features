@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.profiler import record_function
 
 from src.utils.stereo_camera_model import StereoCameraModel
 
@@ -119,7 +120,8 @@ def get_keypoint_info(kpt_2D, scores_map, descriptors_map, disparity, stereo_cam
 
     kpt_scores = get_scores(scores_map, kpt_2D_norm)
 
-    kpt_3D, valid = stereo_cam.inverse_camera_model(kpt_2D, disparity)
+    with record_function("Inverse Camera Model"):
+        kpt_3D, valid = stereo_cam.inverse_camera_model(kpt_2D, disparity)
 
     return kpt_3D, valid, kpt_desc_norm, kpt_scores
 
@@ -137,23 +139,13 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
     """
     B = kpt_3D.size(0)  # Batch size
     N = kpt_3D.size(2)  # Number of keypoints
-    # Covariance matrix in pixel space for left camera coordinates and disparity
-    sigma = torch.tensor(stereo_cam.sigma)
-    cov_pxl = (
-        torch.tensor(
-            [
-                [1.0, 0.0, 1.0],
-                [0.0, 1.0, 0.0],
-                [1.0, 0.0, 2.0],
-            ]
-        )
-        * sigma**2
-    )
+    f = stereo_cam.f_tensor
+    b = stereo_cam.b_tensor
+    cov_pxl = stereo_cam.cov_pxl
+    zero = torch.zeros(B, N, device=kpt_3D.device, dtype=kpt_3D.dtype)
+
     # Define linearized covariance transformation matrix
     x, y, z = kpt_3D[:, 0, :], kpt_3D[:, 1, :], kpt_3D[:, 2, :]
-    f = torch.tensor(stereo_cam.f).cuda()
-    b = torch.tensor(stereo_cam.b).cuda()
-    zero = torch.zeros(B, N).cuda()
     # Linearized mapping from [u,v,d] to [x,y,z]
     G = torch.stack(
         [
@@ -164,22 +156,17 @@ def get_inv_cov_weights(kpt_3D, valid, stereo_cam: StereoCameraModel):
         dim=2,
     )
     # Compute covariance in camera frame
-    cov_pxl = cov_pxl[None, None, :, :].expand(B, N, 3, 3).cuda()
-    cov_cam = torch.einsum("bnij,bnjk,bnlk->bnil", G, cov_pxl, G)
-    # Mask invalid covariances with identity before inverting to avoid
-    # numerical issues
-    valid_mask = valid.transpose(-1, -2)[:, :, :, None].expand(B, N, 3, 3)
-    identity = torch.eye(3)[None, None, :, :].expand(B, N, -1, -1).cuda()
-    cov_cam[valid_mask == 0] = identity[valid_mask == 0]
+    cov_cam = torch.einsum("bnij,jk,bnlk->bnil", G, cov_pxl, G)
+    # Only use valid covariances to avoid numerical issues numerical issues
+    cov_cam_valid = cov_cam[valid[:, 0, :]]  # (N_valid, 3, 3)
     # Invert to get weight matrices
-    L, info = torch.linalg.cholesky_ex(cov_cam)
-    W = torch.cholesky_inverse(L)
-    # Zero out the entries that we don't want to avoid computing the trace
-    W = torch.where(valid_mask, W, torch.zeros_like(W))
+    L, info = torch.linalg.cholesky_ex(cov_cam_valid)
+    W_valid = torch.cholesky_inverse(L)
+    # Reshape to original size
+    W = torch.zeros_like(cov_cam)
+    W[valid[:, 0, :]] = W_valid
     # Normalize the weight matrices via the average trace * N_features
     batch_trace = torch.vmap(torch.vmap(torch.trace))
     factor = torch.mean(batch_trace(W), dim=1)
     W = W / factor[:, None, None, None]
-    # Set the weights to identity for invalid keypoints (for downstream cholesky decomposition)
-    W[valid_mask == 0] = identity[valid_mask == 0]
     return W, cov_cam

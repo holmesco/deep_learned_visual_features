@@ -199,7 +199,7 @@ def compare_keypoints(id, num_matches=100, device=None):
         a.set_yticklabels([])
         a.axis("off")
     plt.subplots_adjust(wspace=0, hspace=0, left=0, right=1, top=1, bottom=0)
-
+    plt.show()
     savefig(fig, "kpt_compare_" + id, p_new.config)
 
 

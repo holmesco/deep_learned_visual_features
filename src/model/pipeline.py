@@ -137,11 +137,13 @@ class Pipeline(nn.Module):
             7,
             8,
         ]  # Picking out the left images from the four stereo src and trg images.
-        images = images[:, im_channels, :, :].cuda()
-        disparities = disparities.cuda()
 
-        pose_se3 = pose_se3.cuda()
-        pose_log = pose_log.cuda()
+        with record_function("Move data to GPU"):
+            images = images[:, im_channels, :, :].cuda()
+            disparities = disparities.cuda()
+
+            pose_se3 = pose_se3.cuda()
+            pose_log = pose_log.cuda()
 
         ################################################################################################################
         #  Get keypoints and associated info for the source and target frames
@@ -224,6 +226,7 @@ class Pipeline(nn.Module):
                 kpt_scores_pseudo,
             )
 
+        with record_function("Matrix weight computation"):
             # Compute inverse covariance weightings
             # NOTE: Assume that all of the variation is lumped on the pseudo targets
             if (

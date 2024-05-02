@@ -103,7 +103,8 @@ def execute_epoch(
                 torch.nn.utils.clip_grad_norm(
                     net.parameters(), max_norm=2.0, norm_type=2
                 )
-                optimizer.step()
+                with record_function("Optimizer"):
+                    optimizer.step()
 
             num_batches += 1
             num_examples += batch_size
@@ -312,10 +313,11 @@ def main(config, profiler_on=False, debug=False):
         config (dict): configurations for training the network.
     """
     if profiler_on or debug:
-        # config["training"]["num_samples_train"] = 100
-        # config["training"]["num_samples_valid"] = 5
+        config["training"]["num_samples_train"] = 3
+        config["training"]["num_samples_valid"] = 3
         config["training"]["max_epochs"] = 1
         config["training"]["start_pose_estimation"] = 0
+        config["dataset_name"] = "dataset_inthedark_small"
         config["experiment_name"] = config["experiment_name"] + "_prf_dbg"
         # config["dataset_name"] = "dataset_inthedark_small"
         config["debug"] = True
