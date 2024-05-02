@@ -1,0 +1,56 @@
+{
+    "home_path": "/home/cho/projects/deep_learned_visual_features",
+    "experiment_name": "TRO_test_lieopt",
+    "dataset_name": "dataset_inthedark",
+    "checkpoint_name": "network_multiseason_inthedark_layer16",
+    "cuda_device": 0,
+    "network": {
+        "type": "unet",
+        "num_channels": 3,
+        "num_classes": 1,
+        "layer_size": 16,
+        "pretrained": false
+    },
+    "pipeline": {
+        "window_h": 16,
+        "window_w": 16,
+        "dense_matching": true,
+        "localization": "lieopt",
+        "use_inv_cov_weights": true
+    },
+    "outlier_rejection": {
+        "on": true,
+        "type": "ransac",
+        "dim": [
+            "3D"
+        ],
+        "inlier_threshold": 0.6,
+        "error_tolerance": {
+            "3D": 4.0,
+            "2D": 50.0
+        },
+        "num_iterations": 15
+    },
+    "data_loader": {
+        "batch_size": 1,
+        "num_workers": 2,
+        "shuffle": false
+    },
+    "stereo": {
+        "cu": 257.446,
+        "cv": 197.718,
+        "f": 387.777,
+        "b": 0.239965
+    },
+    "dataset": {
+        "height": 384,
+        "width": 512,
+        "use_normalization": false,
+        "use_disparity": true
+    },
+    "loss": {
+        "types": [
+            "pose_plane"
+        ]
+    }
+}

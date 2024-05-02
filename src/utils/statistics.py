@@ -19,6 +19,7 @@ class Statistics:
         self.map_run_id = None
         self.sample_ids = {}
         self.num_inliers = {}
+        self.run_times = {}
 
     def get_epoch_stats(self):
         return self.epoch_losses, self.epoch_errors
@@ -61,6 +62,12 @@ class Statistics:
             self.num_inliers[live_run_id] = [num_inliers]
         else:
             self.num_inliers[live_run_id] += [num_inliers]
+
+    def add_run_time(self, live_run_id, run_time):
+        if live_run_id not in self.run_times:
+            self.run_times[live_run_id] = [run_time]
+        else:
+            self.run_times[live_run_id] += [run_time]
 
     def add_outputs_targets_se3(self, live_run_id, output, target):
         if live_run_id not in self.outputs_se3.keys():

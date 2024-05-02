@@ -390,7 +390,7 @@ def main(config, profiler_on=False, debug=False):
         validation_set, sampler=validation_sampler, **dataloader_params
     )
 
-    # Set up device, using GPU 0
+    # Set up device
     device = torch.device(
         "cuda:{}".format(config["cuda_device"])
         if torch.cuda.device_count() > 0

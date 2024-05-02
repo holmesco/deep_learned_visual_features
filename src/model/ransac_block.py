@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.model.loc_block import LocBlock
+from src.model.sdpr_block import SDPRBlock
 from src.model.svd_block import SVDBlock
 from src.utils.lie_algebra import se3_inv, se3_log
 from src.utils.stereo_camera_model import StereoCameraModel
@@ -48,10 +48,17 @@ class RANSACBlock(nn.Module):
         # Maximum number of iterations to run before giving up.
         self.num_iterations = config["outlier_rejection"]["num_iterations"]
 
-        # SVD is used to estimate pose.
-        self.use_sdpr = config["pipeline"]["localization"] == "sdpr"
+        # Instantiate pose estimation
+        self.use_sdpr = (
+            "localization" in config["outlier_rejection"]
+            and config["outlier_rejection"]["localization"] == "sdpr"
+        )
+        self.use_inv_cov_weights = (
+            "use_inv_cov_weights" in config["outlier_rejection"]
+            and config["outlier_rejection"]["use_inv_cov_weights"]
+        )
         if self.use_sdpr:
-            self.loc = LocBlock(T_s_v)
+            self.loc = SDPRBlock(T_s_v)
         else:
             self.svd = SVDBlock(T_s_v)
 
@@ -124,7 +131,9 @@ class RANSACBlock(nn.Module):
             rand_weights = torch.gather(
                 weights.detach(), dim=2, index=rand_index
             )  # 1x1xM
-            if inv_cov_weights is not None:
+            # Only use inverse covariance if it has been computed and it has been turned
+            # on in the config
+            if inv_cov_weights is not None and self.use_inv_cov_weights:
                 rand_index.transpose_(1, 2)
                 rand_inv_cov_weights = torch.gather(
                     inv_cov_weights,
@@ -199,4 +208,4 @@ class RANSACBlock(nn.Module):
 
             i += 1
 
-        return inliers
+        return inliers, T_trg_src_cam

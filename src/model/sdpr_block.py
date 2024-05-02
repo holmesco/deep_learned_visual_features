@@ -8,9 +8,10 @@ from sdprlayer import SDPRLayer
 from src.utils.lie_algebra import se3_inv, se3_log
 
 
-class LocBlock(nn.Module):
+class SDPRBlock(nn.Module):
     """
-    Compute the relative pose between the source and target frames.
+    Compute the relative pose between the source and target frames using
+    Semidefinite Programming Relaxation (SDPR)Layer.
     """
 
     def __init__(self, T_s_v):
@@ -21,7 +22,7 @@ class LocBlock(nn.Module):
             T_s_v (torch.tensor): 4x4 transformation matrix providing the transform from the vehicle frame to the
                                   sensor frame.
         """
-        super(LocBlock, self).__init__()
+        super(SDPRBlock, self).__init__()
 
         # Generate constraints
         constraints = (
@@ -34,17 +35,23 @@ class LocBlock(nn.Module):
         self.sdprlayer = SDPRLayer(n_vars=13, constraints=constraints)
 
         self.register_buffer("T_s_v", T_s_v)
+        tol = 1e-10
         self.mosek_params = {
             "MSK_IPAR_INTPNT_MAX_ITERATIONS": 1000,
-            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_MU_RED": 1e-14,
-            "MSK_DPAR_INTPNT_CO_TOL_INFEAS": 1e-12,
-            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": 1e-12,
+            "MSK_DPAR_INTPNT_CO_TOL_PFEAS": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_REL_GAP": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_MU_RED": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_INFEAS": tol,
+            "MSK_DPAR_INTPNT_CO_TOL_DFEAS": tol,
         }
 
     def forward(
-        self, keypoints_3D_src, keypoints_3D_trg, weights, inv_cov_weights=None
+        self,
+        keypoints_3D_src,
+        keypoints_3D_trg,
+        weights,
+        inv_cov_weights=None,
+        verbose=False,
     ):
         """
         Compute the pose, T_trg_src, from the source to the target frame.
@@ -76,7 +83,7 @@ class LocBlock(nn.Module):
         solver_args = {
             "solve_method": "mosek",
             "mosek_params": self.mosek_params,
-            "verbose": False,
+            "verbose": verbose,
         }
         # Run layer
         X, x = self.sdprlayer(Qs, solver_args=solver_args)
