@@ -310,11 +310,15 @@ def main(config):
 
             index += 1
 
-    # Set up device, using GPU 0.
+    # Set up device
+    if "cuda_device" not in config:
+        config["cuda_device"] = 0
     device = torch.device(
-        "cuda:{}".format(0) if torch.cuda.device_count() > 0 else "cpu"
+        "cuda:{}".format(config["cuda_device"])
+        if torch.cuda.device_count() > 0
+        else "cpu"
     )
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(device)
 
     # Set training pipeline.
     testing_pipeline = Pipeline(config)

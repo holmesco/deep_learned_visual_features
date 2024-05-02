@@ -376,7 +376,7 @@ def print_tables_TRO():
     ]
     labels = ["Baseline", "Global", "Local"]
     home = "/home/cho/projects/deep_learned_visual_features"
-    map_ids = [0, 1, 2]
+    map_ids = [2, 11, 16, 17, 23, 28]
     compare_stats = CompareStats(
         home,
         results_paths=results_paths,
@@ -397,12 +397,12 @@ def print_tables_TRO():
     print(latex_tbl)
 
 
-def plot_traj_TRO(ds_factor=10):
+def plot_traj_TRO_small(ds_factor=10):
 
     results_paths = [
-        "results/TRO_test_lieopt/inthedark",
-        "results/TRO_test_sdp/inthedark",
-        "results/TRO_test_baseline/inthedark",
+        "results/TRO_test_lieopt_small/inthedark",
+        "results/TRO_test_sdp_small/inthedark",
+        "results/TRO_test_baseline_small/inthedark",
     ]
     labels = ["lieopt", "sdp", "baseline"]
     colors = [["b", "b", "b"], ["r", "r", "r"], ["g", "g", "g"]]
@@ -428,6 +428,38 @@ def plot_traj_TRO(ds_factor=10):
     compare_stats.savefig(fig, "traj_map0live2", dpi=600)
 
 
+def plot_traj_TRO(ds_factor=10):
+
+    results_paths = [
+        "results/TRO_test_lieopt/inthedark",
+        "results/TRO_test_sdp/inthedark",
+        "results/TRO_test_baseline/inthedark",
+    ]
+    labels = ["lieopt", "sdp", "baseline"]
+    colors = [["b", "b", "b"], ["r", "r", "r"], ["g", "g", "g"]]
+    home = "/home/cho/projects/deep_learned_visual_features"
+    map_ids = [2, 11, 16, 17, 23, 28]
+    compare_stats = CompareStats(
+        home,
+        results_paths=results_paths,
+        labels=labels,
+        map_ids=map_ids,
+    )
+    # Find local minima
+    map_id, live_id = 2, "11"
+    add_inds = compare_stats.find_local_minima(map_id, live_id)
+    # full trajectory
+    fig, ax = compare_stats.plot_trajectories(
+        map_id, live_id, ds_factor=ds_factor, frame_colors=colors, add_inds=add_inds
+    )
+    fig.set_size_inches(10, 10)
+    plt.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
+    ax.view_init(azim=-107.25, elev=52.12, roll=0.0)
+    ax.set_axis_off()
+    plt.show()
+    compare_stats.savefig(fig, f"traj_map{map_id}live{live_id}", dpi=600)
+
+
 def plot_local_mins():
     """Plot the first local minimum that can be found from the result set"""
 
@@ -439,30 +471,32 @@ def plot_local_mins():
     labels = ["lieopt", "sdp", "baseline"]
     colors = [["b", "b", "b"], ["r", "r", "r"], ["g", "g", "g"]]
     home = "/home/cho/projects/deep_learned_visual_features"
-    map_ids = [0, 1, 2, 3]
+    map_ids = [2, 11, 16, 17, 23, 28]
     compare_stats = CompareStats(
         home,
         results_paths=results_paths,
         labels=labels,
         map_ids=map_ids,
     )
-    indices = compare_stats.find_local_minima(0, "2")
+    map_id, live_id = 2, "16"
+    indices = compare_stats.find_local_minima(map_id, live_id)
     if len(indices) > 0:
-        plt_inds = slice(indices[0] - 10, indices[0] + 10)
+        plt_inds = slice(indices[7] - 24, indices[7] + 24, 4)
         fig, ax = compare_stats.plot_trajectories(
-            0, "2", ds_factor=1, frame_colors=colors, inds=plt_inds
+            map_id, live_id, ds_factor=1, frame_colors=colors, inds=plt_inds
         )
         # Equalize axes
         ax.set_box_aspect([1, 1, 1])
         set_axes_equal(ax)
         ax.set_axis_off()
         ax.view_init(azim=-110.0, elev=29.5, roll=0.0)
-
-        compare_stats.savefig(fig, "local_min_map0live2")
+        fig.set_size_inches(10, 10)
+        plt.show()
+        compare_stats.savefig(fig, f"local_min_map{map_id}live{live_id}")
 
 
 if __name__ == "__main__":
     # plot_traj_TRO()
-    # plot_local_mins()
+    plot_local_mins()
     # print_tables_RSS()
-    print_tables_TRO()
+    # print_tables_TRO()
