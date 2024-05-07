@@ -38,7 +38,8 @@ class TestPipeline:
         set_seed(0)
         # Load JSON config
         t.config = json.load(open(config))
-        t.config["training"]["start_pose_estimation"] = 0
+        if "training" in t.config:
+            t.config["training"]["start_pose_estimation"] = 0
         # Set up device
         if device is not None:
             t.config["cuda_device"] = device
@@ -141,14 +142,17 @@ class TestPipeline:
         return net
 
 
-def compare_keypoints(id, num_matches=100, device=None):
+def compare_keypoints(id, num_matches=200, device=None):
     sample_ids = [id]
     with torch.no_grad():
         # Get images
         img_1, img_2 = get_imgs(id=id)
         # Run new pipeline
+        # p_new = TestPipeline(
+        #     config="./_test/config_sdpr.json", sample_ids=sample_ids, device=device
+        # )
         p_new = TestPipeline(
-            config="./_test/config_sdpr.json", sample_ids=sample_ids, device=device
+            config="./config/test_sdpr_v2.json", sample_ids=sample_ids, device=device
         )
         diff_new, data_new = p_new.run_pipeline(id=id)
         # Draw matches
@@ -158,6 +162,7 @@ def compare_keypoints(id, num_matches=100, device=None):
             data_new["weights"],
             img_1,
             img_2,
+            num_matches=num_matches,
         )
         # print(f"New pipeline found {num_matches_new} matches with weight > 0.01")
 
@@ -173,6 +178,7 @@ def compare_keypoints(id, num_matches=100, device=None):
             data_old["weights"],
             img_1,
             img_2,
+            num_matches=num_matches,
         )
         # print(f"Old pipeline found {num_matches_old} matches with weight > 0.01")
 
@@ -268,6 +274,6 @@ if __name__ == "__main__":
     # # Instantiate
     # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
     # t.run_pipeline(id="inthedark-1-15-19-16")
-    compare_keypoints("inthedark-1-15-19-16", device=1)
+    compare_keypoints("inthedark-16-123-2-11", device=1)
     compare_keypoints("inthedark-21-2057-27-1830", device=1)
     compare_keypoints("inthedark-27-2182-8-1886", device=1)

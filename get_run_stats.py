@@ -345,7 +345,7 @@ def rmse(outputs_se3, targets_se3, filter=False):
 
 
 def print_tables_RSS():
-    results_paths = ["results/test_svd/inthedark", "results/test_sdpr_v1/inthedark"]
+    results_paths = ["results/test_svd_v2/inthedark", "results/test_sdpr_v2/inthedark"]
     labels = ["SVD", "SDPR"]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [2, 11, 16, 17, 23, 28]
@@ -358,7 +358,8 @@ def print_tables_RSS():
     stats = compare_stats.get_aggregate_stats()
 
     print("Full Table:")
-    stats.drop(labels=["rmse_tr", "rmse_rot"], axis=1, inplace=True)
+    stats.sort_values(["map_run", "live_run"], inplace=True)
+    # stats.drop("avg_num_inliers", axis=1, inplace=True)
     latex_tbl = stats.to_latex(float_format="%.3f", index=False)
     print(latex_tbl)
 
@@ -497,6 +498,6 @@ def plot_local_mins():
 
 if __name__ == "__main__":
     # plot_traj_TRO()
-    plot_local_mins()
-    # print_tables_RSS()
+    # plot_local_mins()
+    print_tables_RSS()
     # print_tables_TRO()
