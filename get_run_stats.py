@@ -362,7 +362,7 @@ def print_tables_RSS():
 
     print("Full Table:")
     stats.sort_values(["map_run", "live_run"], inplace=True)
-    # stats.drop("avg_num_inliers", axis=1, inplace=True)
+    stats.drop("runtime", axis=1, inplace=True)
     latex_tbl = stats.to_latex(float_format="%.3f", index=False)
     print(latex_tbl)
 

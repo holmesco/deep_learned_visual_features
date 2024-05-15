@@ -142,7 +142,7 @@ class TestPipeline:
         return net
 
 
-def compare_keypoints(id, num_matches=100, device=None):
+def compare_keypoints(id, num_matches=50, device=None):
     sample_ids = [id]
     with torch.no_grad():
         # Get images
@@ -275,10 +275,11 @@ if __name__ == "__main__":
     # ]
     # # Instantiate
     # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
-    t.run_pipeline(id="inthedark-1-15-19-16")
+    # t.run_pipeline(id="inthedark-1-15-19-16")
     # compare_keypoints("inthedark-16-123-2-21", device=1)
-    # compare_keypoints("inthedark-1-15-19-16", device=1)
+    # compare_keypoints("inthedark-27-2182-8-1886", num_matches=50, device=0)
     # compare_keypoints("inthedark-21-2057-27-1830", device=1)
-    # compare_keypoints("inthedark-27-2182-8-1886", device=1)
 
-    # compare_keypoints("inthedark-17-750-2-181", device=1)
+    # figure:
+    # compare_keypoints("inthedark-1-15-19-16", num_matches=50, device=0)
+    compare_keypoints("inthedark-21-2057-27-1830", num_matches=50, device=0)
