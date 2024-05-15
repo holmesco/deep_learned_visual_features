@@ -142,7 +142,7 @@ class TestPipeline:
         return net
 
 
-def compare_keypoints(id, num_matches=200, device=None):
+def compare_keypoints(id, num_matches=100, device=None):
     sample_ids = [id]
     with torch.no_grad():
         # Get images
@@ -152,7 +152,7 @@ def compare_keypoints(id, num_matches=200, device=None):
         #     config="./_test/config_sdpr.json", sample_ids=sample_ids, device=device
         # )
         p_new = TestPipeline(
-            config="./config/test_sdpr_v2.json", sample_ids=sample_ids, device=device
+            config="./config/test_sdpr_v3.json", sample_ids=sample_ids, device=device
         )
         diff_new, data_new = p_new.run_pipeline(id=id)
         # Draw matches
@@ -235,6 +235,8 @@ def draw_keypoint_matches(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=
         for i in range(kp2_pseudo.shape[1])
     ]
 
+    # num_matches = np.argmax([match.distance > 0.85 for match in matches])
+
     # Draw matches
     img3 = cv.drawMatches(
         im1_cv,
@@ -273,7 +275,10 @@ if __name__ == "__main__":
     # ]
     # # Instantiate
     # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
-    # t.run_pipeline(id="inthedark-1-15-19-16")
-    compare_keypoints("inthedark-16-123-2-11", device=1)
-    compare_keypoints("inthedark-21-2057-27-1830", device=1)
-    compare_keypoints("inthedark-27-2182-8-1886", device=1)
+    t.run_pipeline(id="inthedark-1-15-19-16")
+    # compare_keypoints("inthedark-16-123-2-21", device=1)
+    # compare_keypoints("inthedark-1-15-19-16", device=1)
+    # compare_keypoints("inthedark-21-2057-27-1830", device=1)
+    # compare_keypoints("inthedark-27-2182-8-1886", device=1)
+
+    # compare_keypoints("inthedark-17-750-2-181", device=1)

@@ -239,7 +239,12 @@ class Pipeline(nn.Module):
                     stereo_cam=self.stereo_cam,
                 )
                 # Detach weights so that they don't mess with the gradient computation
-                inv_cov_weights = inv_cov_weights.detach()
+                if (
+                    "detach_weights" not in self.config["pipeline"]
+                    or self.config["pipeline"]["detach_weights"]
+                ):
+                    inv_cov_weights = inv_cov_weights.detach()
+
             else:
                 inv_cov_weights = None
 

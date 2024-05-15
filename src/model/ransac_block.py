@@ -184,9 +184,8 @@ class RANSACBlock(nn.Module):
                 se3_inv(T_s_v)
             )  # pose in camera frame
             pts_3D_trg_est = T_trg_src_cam.bmm(pts_3D_src)
-            pts_2D_trg_est = self.stereo_cam.camera_model(pts_3D_trg_est)[:, 0:2, :]
-
             if dim == "2D":
+                pts_2D_trg_est = self.stereo_cam.camera_model(pts_3D_trg_est)[:, 0:2, :]
                 err_pts = torch.norm(pts_2D_trg - pts_2D_trg_est, dim=1)  # BxN
             else:
                 err_pts = torch.norm(pts_3D_trg - pts_3D_trg_est, dim=1)  # BxN

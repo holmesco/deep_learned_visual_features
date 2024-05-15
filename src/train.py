@@ -304,6 +304,21 @@ def train(
             )  # Add epoch so we don't overwrite existing file.
             print(f"Saved checkpoint for epoch {epoch} prior to pose estimation.")
 
+        if epoch == config["training"]["max_epochs"] - 1:
+            # save on the final epoch
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": net.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "loss": validation_loss,
+                    "train_stats": train_stats,
+                    "valid_stats": validation_stats,
+                },
+                "{}_{}.pth".format(checkpoint_path, epoch),
+            )  # Add epoch so we don't overwrite existing file.
+            print(f"Saved checkpoint for epoch {epoch} prior to pose estimation.")
+
 
 def main(config, profiler_on=False, debug=False):
     """
