@@ -347,9 +347,10 @@ def rmse(outputs_se3, targets_se3, filter=False):
 def print_tables_RSS():
     results_paths = [
         "results/test_svd_v2/inthedark",
+        "results/test_svd_v3/inthedark",
         "results/test_sdpr_v3/inthedark",
     ]
-    labels = ["SVD", "SDPR"]
+    labels = ["SVD", "VGG16 SVD", "VGG16 SDPR"]
     home = "/home/cho/projects/deep_learned_visual_features"
     map_ids = [2, 11, 16, 17, 23, 28]
     compare_stats = CompareStats(
