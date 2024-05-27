@@ -345,14 +345,37 @@ def rmse(outputs_se3, targets_se3, filter=False):
 
 
 def print_tables_RSS():
+
+    # Print default test tables
+    # print("Results with min possible delta")
+    # print("================================")
+    # results_paths = [
+    #     "results/test_svd_v2/inthedark",
+    #     "results/test_svd_v3/inthedark",
+    #     "results/test_sdpr_v3/inthedark",
+    # ]
+    # labels = ["SVD", "VGG16 SVD", "VGG16 SDPR"]
+    # map_ids = [2, 11, 16, 17, 23, 28]
+
+    # print_table_RSS(results_paths=results_paths,
+    #                 labels = labels,
+    #                 map_ids=map_ids)
+
+    # Print results with increased distances
+    print("Min delta: 1 m or 30 deg ")
+    print("=========================")
     results_paths = [
-        "results/test_svd_v2/inthedark",
-        "results/test_svd_v3/inthedark",
-        "results/test_sdpr_v3/inthedark",
+        "results/test_sdpr_v4_d1_r30/inthedark",
+        "results/test_sdpr_v3_d1_r30/inthedark",
+        "results/test_svd_v3_d1_r30/inthedark",
     ]
-    labels = ["SVD", "VGG16 SVD", "VGG16 SDPR"]
-    home = "/home/cho/projects/deep_learned_visual_features"
+    labels = ["VGG16 SDPR (mod)", "VGG16 SDPR", "VGG16 SVD"]
     map_ids = [2, 11, 16, 17, 23, 28]
+    print_table_RSS(results_paths=results_paths, labels=labels, map_ids=map_ids)
+
+
+def print_table_RSS(results_paths, labels, map_ids):
+    home = "/home/cho/projects/deep_learned_visual_features"
     compare_stats = CompareStats(
         home,
         results_paths=results_paths,
@@ -368,9 +391,18 @@ def print_tables_RSS():
     print(latex_tbl)
 
     print("Aggregated Table:")
+    # Drop rows with high error
+    # stats = stats[stats.yaw < 3.0]
     stats_avg = stats.groupby(["pipeline"]).mean().drop(labels=["map_run"], axis=1)
     latex_tbl = stats_avg.to_latex(float_format="%.3f")
     print(latex_tbl)
+
+
+"""
+=============================================================
+Section below is for Matrix Weight TRO submission in May 2024
+=============================================================
+"""
 
 
 def print_tables_TRO():

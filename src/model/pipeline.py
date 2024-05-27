@@ -410,6 +410,7 @@ class Pipeline(nn.Module):
                         kpt_2D_src=kpt_2D_src.cpu().detach().numpy(),
                         scores_src=scores_src.cpu().detach().numpy(),
                         scores_trg=scores_trg.cpu().detach().numpy(),
+                        valid=valid.cpu().detach().numpy(),
                     )
                     return T_trg_src, saved_data
                 else:

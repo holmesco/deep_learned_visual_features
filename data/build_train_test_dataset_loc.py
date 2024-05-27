@@ -107,6 +107,11 @@ def main(config):
 
     # Generate sequential datasets that can be used for testing.
     mel_data.paths = config["test_paths"]
+    # Get the minimum distances for seq sampling if they are defined
+    if "min_rel_pose_dist" in config:
+        min_dist = config["min_rel_pose_dist"]
+    else:
+        min_dist = [0.0, 0.0]
     for path_name in config["test_paths"]:
 
         test_runs = config["test_runs"][path_name]
@@ -123,7 +128,12 @@ def main(config):
             repeat_runs = test_runs[(i + 1) :]
             temporal_len = config["temporal_len"][path_name][str(teach_run)]
             test_ids, test_labels_se3, test_labels_log = build_sequential_loc_dataset(
-                data_path, path_name, teach_run, repeat_runs, temporal_len
+                data_path,
+                path_name,
+                teach_run,
+                repeat_runs,
+                temporal_len,
+                min_dist=min_dist,
             )
 
             mel_data.test_ids[path_name] = mel_data.test_ids[path_name] + [test_ids]

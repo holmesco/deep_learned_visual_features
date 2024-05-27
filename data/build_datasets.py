@@ -129,7 +129,7 @@ def build_dataset_from_ids(data_path, sample_ids):
 
 
 def build_sequential_loc_dataset(
-    data_path, path_name, map_run_id, live_run_ids, temporal_length
+    data_path, path_name, map_run_id, live_run_ids, temporal_length, min_dist=[0.0, 0.0]
 ):
     """
     Build a dataset that localizes all the vertices of one or more runs in the pose graph to the vertices on one
@@ -152,6 +152,9 @@ def build_sequential_loc_dataset(
         temporal_length (int): we can 'walk along' the pose graph to pair vertices that har further apart (i.e.
                                not the closest pair). We set a fixed topological distance/steps we move away
                                from the start vertex.
+        min_dist ([float,float]): a list of minimum metric/rotational distances between map and live vertices.
+                                  This is used for testing performance when we want to ensure that the relative pose
+                                  is not very close to identity.
 
     Returns:
          samples (list[string]): list of all the sample ids.
@@ -167,5 +170,10 @@ def build_sequential_loc_dataset(
     pose_graph = build_sub_graph([map_run_id] + live_run_ids, data_dir)
 
     return sequential_sample(
-        path_name, pose_graph, map_run_id, live_run_ids, temporal_length
+        path_name,
+        pose_graph,
+        map_run_id,
+        live_run_ids,
+        temporal_length,
+        min_dist=min_dist,
     )

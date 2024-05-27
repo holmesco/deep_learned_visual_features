@@ -1,6 +1,6 @@
 {
     "home_path": "/home/cho/projects/deep_learned_visual_features",
-    "description": "SVD counterpart to SDP test v2, increased ransac iters",
+    "description": "SVD with original encoder, increased ransac iters",
     "experiment_name": "test_svd_v2",
     "dataset_name": "dataset_inthedark",
     "checkpoint_name": "network_multiseason_inthedark_layer16",

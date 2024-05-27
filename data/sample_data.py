@@ -1,9 +1,11 @@
 import random
 import re
+import sys
 from operator import itemgetter
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from src.utils.transform import Transform
 
@@ -96,7 +98,7 @@ def random_sample(path_name, pose_graph, runs, num_samples, max_temporal_length)
         # Create a sample ID and check that it has not already been added.
         sample_id = f"{path_name}-{live_id[0]}-{live_id[1]}-{other_id[0]}-{other_id[1]}"
 
-        if not sample_id in samples:
+        if sample_id not in samples:
 
             T_other_live = pose_graph.get_transform(live_id, other_id)
             log_other_live = Transform.LogMap(T_other_live)
@@ -118,7 +120,9 @@ def random_sample(path_name, pose_graph, runs, num_samples, max_temporal_length)
     return samples, labels_se3, labels_log
 
 
-def sequential_sample(path_name, pose_graph, map_run_id, live_runs, temporal_length):
+def sequential_sample(
+    path_name, pose_graph, map_run_id, live_runs, temporal_length, min_dist=None
+):
     """
     Sample relative pose transforms for localization sequentially from the pose graph. Compute the pose from
     vertices from each of the live runs to one map run. Compute the pose for each vertex on the live runs
@@ -138,6 +142,9 @@ def sequential_sample(path_name, pose_graph, map_run_id, live_runs, temporal_len
         temporal_length (int): we can 'walk along' the pose graph to pair vertices that har further apart (i.e.
                                not the closest pair). We set a fixed topological distance/steps we move away
                                from the start vertex.
+        min_dist ([float,float]): (optional) a list of minimum metric/rotational distances between map and live vertices.
+                                  This is used for testing performance when we want to ensure that the relative pose
+                                  is not very close to identity.
 
     Returns:
          samples (list[string]): list of all the sample ids.
@@ -155,7 +162,8 @@ def sequential_sample(path_name, pose_graph, map_run_id, live_runs, temporal_len
     vertex_ids = sorted(vertex_ids, key=itemgetter(0, 1))
 
     # Localize each vertex in the live run sequentially.
-    for live_id in vertex_ids:
+
+    for live_id in tqdm(vertex_ids, file=sys.__stdout__):
 
         live_vertex = pose_graph.get_vertex(live_id)
 
@@ -168,10 +176,16 @@ def sequential_sample(path_name, pose_graph, map_run_id, live_runs, temporal_len
             # them, i.e. if run5_pose50 is localized directly to run3_pose54, we get r5_p50 -> r0_p52 -> r3_p54 so a
             # radius of 2 instead of 1.
             radius = temporal_length + 1
-            max_radius = 8
+            max_radius = 50
             map_pose_id = -1
             smallest_metric_dist = 1000
             chosen_topo_dist = 1000
+
+            # Minimum distance between live and map run poses
+            if min_dist is not None:
+                trans_min, rot_min = min_dist
+            else:
+                trans_min, rot_min = (0.0, 0.0)
 
             # Try to find a vertex on the map run to localize against. If we can find one at the specified topological
             # distance, then increase the search radius.
@@ -193,8 +207,11 @@ def sequential_sample(path_name, pose_graph, map_run_id, live_runs, temporal_len
                         topo_dist = pose_graph.get_topological_dist(live_id, n_id)
                         T_n_live = pose_graph.get_transform(live_id, n_id)
                         metric_dist = np.linalg.norm(T_n_live.r_ab_inb)
-                        if (metric_dist < smallest_metric_dist) and (
-                            topo_dist >= temporal_length + 1
+                        rot_dist = np.linalg.norm(np.degrees(T_n_live.phi))
+                        if (
+                            (metric_dist < smallest_metric_dist)
+                            and (topo_dist >= temporal_length + 1)
+                            and ((metric_dist >= trans_min) or (rot_dist >= rot_min))
                         ):
                             smallest_metric_dist = metric_dist
                             chosen_topo_dist = topo_dist
