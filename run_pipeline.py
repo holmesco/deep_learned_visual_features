@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
+from tqdm import tqdm
 
 from src.dataset import Dataset
 from src.model.pipeline import Pipeline
@@ -23,7 +24,7 @@ def set_seed(x):
     torch.manual_seed(x)
 
 
-class TestPipeline:
+class RunPipeline:
     def __init__(
         t,
         config,
@@ -61,39 +62,48 @@ class TestPipeline:
         # Load  network
         print("Loading network...")
         t.net = t.load_net(t.config)
+        # Instantiate pipeline
+        t.pipeline = Pipeline(t.config).cuda()
+
         print("...Done!")
 
-    def run_pipeline(t, id=0):
+    def run_pipeline(t):
         """Test the pipeline on inputs from the training set"""
         localization = t.config["pipeline"]["localization"]
         print(f"Running {localization} pipeline on id {id}")
         if t.config["pipeline"]["use_inv_cov_weights"]:
             print("Using inverse covariance weights")
-        # Instantiate pipeline
-        pipeline = Pipeline(t.config).cuda()
-        # Load image data
-        images, disparities, ids, pose_se3, pose_log = t.dataset[id]
-        images = images[None, :, :, :]  # Add batch dimension
-        disparities = disparities[None, :, :, :]
-        pose_se3 = pose_se3[None, :, :]
-        pose_log = pose_log[None, :]
-        # Run Pipeline
-        with torch.no_grad():
-            output_se3, saved_data = pipeline.forward(
-                t.net,
-                images,
-                disparities,
-                pose_se3,
-                pose_log,
-                0,
-                test=True,
-                save_data=True,
-            )
-            # Check that output is close to ground truth
-            output_se3 = output_se3.cpu().float()
-            diff = se3_log(output_se3.bmm(pose_se3.inverse()))
 
-        return diff, saved_data
+        # Load image data
+        diffs = []
+        saved_data = []
+        for data in tqdm(t.dataset):
+            images, disparities, ids, pose_se3, pose_log = data
+            images = images[None, :, :, :]  # Add batch dimension
+            disparities = disparities[None, :, :, :]
+            pose_se3 = pose_se3[None, :, :]
+            pose_log = pose_log[None, :]
+            # Run Pipeline
+            with torch.no_grad():
+                output_se3, info = t.pipeline(
+                    t.net,
+                    images,
+                    disparities,
+                    pose_se3,
+                    pose_log,
+                    0,
+                    test=True,
+                    save_data=True,
+                )
+                # Check that output is close to ground truth
+                output_se3 = output_se3.cpu().float()
+                diff = se3_log(output_se3.bmm(pose_se3.inverse()))
+            # Store data
+            info["pose_log"] = pose_log[0]
+            diffs += [diff]
+            saved_data += [info]
+
+        return diffs, saved_data
 
     @staticmethod
     def load_data(config):
@@ -149,54 +159,54 @@ def compare_keypoints(id, num_matches=50, device=None):
     with torch.no_grad():
         # Get images
         img_1, img_2 = get_imgs(id=id)
-        p_new = TestPipeline(
+        p_new = RunPipeline(
             config=config_new,
             sample_ids=sample_ids,
             device=device,
         )
-        diff_new, data_new = p_new.run_pipeline(id=id)
+        diff_new, data_new = p_new.run_pipeline()
         # Draw matches
         img_match_new, img_vo_new = draw_keypoint_imgs(
-            data_new["kpt_2D_src"],
-            data_new["kpt_2D_pseudo"],
-            data_new["weights"],
+            data_new[0]["kpt_2D_src"],
+            data_new[0]["kpt_2D_pseudo"],
+            data_new[0]["weights"],
             img_1,
             img_2,
             num_matches=num_matches,
         )
 
         # run old pipeline
-        p_old = TestPipeline(config=config_old, sample_ids=sample_ids, device=device)
-        diff_old, data_old = p_old.run_pipeline(id=id)
+        p_old = RunPipeline(config=config_old, sample_ids=sample_ids, device=device)
+        diff_old, data_old = p_old.run_pipeline()
         # Draw matches
         img_match_old, img_vo_old = draw_keypoint_imgs(
-            data_old["kpt_2D_src"],
-            data_old["kpt_2D_pseudo"],
-            data_old["weights"],
+            data_old[0]["kpt_2D_src"],
+            data_old[0]["kpt_2D_pseudo"],
+            data_old[0]["weights"],
             img_1,
             img_2,
             num_matches=num_matches,
         )
         # print(f"Old pipeline found {num_matches_old} matches with weight > 0.01")
     print("SVD Solution Error:")
-    print(diff_old)
+    print(diff_old[0])
     print("SDP Solution Error:")
-    print(diff_new)
+    print(diff_new[0])
     # plot
     dpi = 600
     width = 512 * 4 / dpi
     height = 384 * 2 / dpi
     fig, axs = plt.subplots(2, 4, figsize=(width, height))
     axs[0, 0].imshow(img_1)
-    axs[0, 0].imshow(data_new["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[0, 0].imshow(data_new[0]["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[0, 3].imshow(img_2)
-    axs[0, 3].imshow(data_new["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[0, 3].imshow(data_new[0]["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[0, 1].imshow(img_match_new[:, :512, :])
     axs[0, 2].imshow(img_match_new[:, 512:, :])
     axs[1, 0].imshow(img_1)
-    axs[1, 0].imshow(data_old["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[1, 0].imshow(data_old[0]["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[1, 3].imshow(img_2)
-    axs[1, 3].imshow(data_old["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[1, 3].imshow(data_old[0]["scores_trg"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[1, 1].imshow(img_match_old[:, :512, :])
     axs[1, 2].imshow(img_match_old[:, 512:, :])
     # adjust for a tight layout
@@ -208,14 +218,14 @@ def compare_keypoints(id, num_matches=50, device=None):
 
     # MAKE VISUAL ODOMETRY PLOT
     dpi = 600
-    width = 512 * 2 / dpi
+    width = 512 * 3 / dpi
     height = 384 * 2 / dpi
     fig2, axs = plt.subplots(2, 2, figsize=(width, height))
     axs[0, 0].imshow(img_1)
-    axs[0, 0].imshow(data_new["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[0, 0].imshow(data_new[0]["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[0, 1].imshow(img_vo_new)
     axs[1, 0].imshow(img_1)
-    axs[1, 0].imshow(data_old["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
+    axs[1, 0].imshow(data_old[0]["scores_src"][0, 0, :, :], cmap="jet", alpha=0.6)
     axs[1, 1].imshow(img_vo_old)
 
     # adjust for a tight layout
@@ -239,9 +249,7 @@ def savefig(fig, name, config):
     fig.savefig(f"{directory}/{name}.png", format="png", dpi=600)
 
 
-def draw_keypoint_imgs(
-    kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=50, draw_vo=False
-):
+def draw_keypoint_imgs(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=50):
 
     # Generate opencv match array
     matches = [
@@ -272,26 +280,89 @@ def draw_keypoint_imgs(
         None,
         flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
     )
-    # Draw VO tracks
-    img_vo = im1_cv
-    img_vo = cv.drawKeypoints(
-        img_vo,
+    # Draw VO tracks (left image)
+    img_vo1 = im1_cv
+    img_vo1 = cv.drawKeypoints(
+        img_vo1,
         [kp1_cv[m.queryIdx] for m in matches[:num_matches]],
         None,
         color=(255, 0, 0),
     )
-    # img_vo = cv.drawKeypoints(
-    #     img_vo,
-    #     [kp2_cv[m.trainIdx] for m in matches[:num_matches]],
-    #     None,
-    #     color=(0, 0, 255),
-    # )
+
+    # Draw VO tracks (right image)
+    img_vo2 = im2_cv
+    img_vo2 = cv.drawKeypoints(
+        img_vo2,
+        [kp2_cv[m.queryIdx] for m in matches[:num_matches]],
+        None,
+        color=(0, 0, 255),
+    )
     for match in matches[:num_matches]:
         pt1 = tuple(np.intp(kp1_cv[match.queryIdx].pt))
         pt2 = tuple(np.intp(kp2_cv[match.queryIdx].pt))
-        img_vo = cv.line(img_vo, pt1, pt2, thickness=1, color=(0, 255, 0))
+        img_vo1 = cv.line(img_vo1, pt1, pt2, thickness=1, color=(0, 255, 0))
+        img_vo2 = cv.line(img_vo2, pt1, pt2, thickness=1, color=(0, 255, 0))
+    img_vo = cv.hconcat([img_vo1, img_vo2])
 
     return img_match, img_vo
+
+
+def inlier_segment(id, config, device=0, n_frames=100, step=1, num_matches=-1):
+    """Show inliers and VO tracks over a segment of frames with increasing distance from
+    the initial frame."""
+    # Generate sequence of ids
+    id_parts = id.split("-")
+    live_frame_start = int(id_parts[2])
+    ids = [
+        "-".join([*id_parts[:2], str(live_frame_start + i), *id_parts[3:]])
+        for i in range(0, n_frames * step, step)
+    ]
+    # Create pipeline class
+    pipeline = RunPipeline(config=config, sample_ids=ids, device=device)
+    # Run pipeline on inputs
+    diffs, outputs = pipeline.run_pipeline()
+    # Video writer
+    im1, im2 = get_imgs(id)
+    height, width, layers = im1.shape
+    fps = 2
+    vid_match = cv.VideoWriter("vid_match.avi", 0, fps, (2 * width, 2 * height))
+    # Loop through frames
+    for i in range(n_frames):
+        data = outputs[i]
+        id_curr = ids[i]
+        im1, im2 = get_imgs(id_curr)
+        img_match, img_vo = draw_keypoint_imgs(
+            data["kpt_2D_src"],
+            data["kpt_2D_pseudo"],
+            data["weights"],
+            im1,
+            im2,
+            num_matches=num_matches,
+        )
+        # Concatenate
+        img = cv.vconcat([img_match, img_vo])
+        # Add metric text to imgs
+        err = diffs[i][0].numpy()
+        n_inliers = outputs[i]["num_inliers"][0]
+        pose = outputs[i]["pose_log"]
+        img_str = f"ax. err: {err[0]:.3f}, lat. err: {err[1]:.3f}, head. err: {np.rad2deg(err[5]):.3f}, inlrs: {n_inliers}"
+        font = cv.FONT_HERSHEY_SIMPLEX
+        org = (0, height - 5)
+        fontScale = 0.5
+        color = (255, 0, 0)
+        thickness = 1
+        img = cv.putText(
+            img, img_str, org, font, fontScale, color, thickness, cv.LINE_AA
+        )
+        org = (0, 15)
+        img_str = f"ax. pos: {pose[0]:.3f}, lat. pos: {pose[1]:.3f}, heading: {np.rad2deg(pose[5]):.3f}"
+        img = cv.putText(
+            img, img_str, org, font, fontScale, color, thickness, cv.LINE_AA
+        )
+        # Write video
+        vid_match.write(cv.cvtColor(img, cv.COLOR_BGR2RGB))
+    # cv.destroyAllWindows()
+    vid_match.release()
 
 
 def get_imgs(id="inthedark-27-2182-8-1886"):
@@ -317,11 +388,15 @@ if __name__ == "__main__":
     #     "inthedark-27-2182-8-1886", lensflare
     # ]
     # # Instantiate
-    # t = TestPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
+    # t = RunPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
     # t.run_pipeline(id="inthedark-1-15-19-16")
     # compare_keypoints("inthedark-16-123-2-21", device=1)
-    compare_keypoints("inthedark-23-74-17-354", num_matches=-1, device=1)
+    compare_keypoints("inthedark-16-954-2-256", num_matches=50, device=1)
 
     # figure:
     # compare_keypoints("inthedark-1-15-19-16", num_matches=50, device=0)
     # compare_keypoints("inthedark-21-2057-27-1830", num_matches=-1, device=1)
+
+    # inlier_segment(
+    #     id="inthedark-21-2152-27-1850", n_frames=50, config="./config/test_sdpr_v4.json"
+    # )

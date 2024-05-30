@@ -11,8 +11,6 @@ from data.build_datasets import build_sub_graph
 from src.utils.lie_algebra import se3_log
 from src.utils.statistics import Statistics
 
-use("tkagg")
-
 
 class CompareStats:
     def __init__(self, home_dir, results_paths, labels, map_ids):
@@ -365,12 +363,12 @@ def print_tables_RSS():
     print("Min delta: 1 m or 30 deg ")
     print("=========================")
     results_paths = [
-        "results/test_sdpr_v4_d1_r30/inthedark",
-        "results/test_sdpr_v3_d1_r30/inthedark",
-        "results/test_svd_v3_d1_r30/inthedark",
+        "results/test_sdpr_v4_t0p5_r4/inthedark",
+        "results/test_svd_v4_t0p5_r4/inthedark",
     ]
-    labels = ["VGG16 SDPR (mod)", "VGG16 SDPR", "VGG16 SVD"]
+    labels = ["VGG16 SDPR", "VGG16 SVD"]
     map_ids = [2, 11, 16, 17, 23, 28]
+    # map_ids = [2]
     print_table_RSS(results_paths=results_paths, labels=labels, map_ids=map_ids)
 
 
@@ -392,7 +390,6 @@ def print_table_RSS(results_paths, labels, map_ids):
 
     print("Aggregated Table:")
     # Drop rows with high error
-    # stats = stats[stats.yaw < 3.0]
     stats_avg = stats.groupby(["pipeline"]).mean().drop(labels=["map_run"], axis=1)
     latex_tbl = stats_avg.to_latex(float_format="%.3f")
     print(latex_tbl)

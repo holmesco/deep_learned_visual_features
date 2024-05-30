@@ -175,12 +175,14 @@ class StereoCameraModel(nn.Module):
 
         # Get the image coordinates.
         img_coords = self.camera_to_image(cam_coords, M)
+        # Check validity of camera coordinates
+        valid_img = torch.logical_not(
+            torch.logical_or(torch.isnan(img_coords), torch.isinf(img_coords))
+        )
 
-        if (torch.sum(torch.isnan(img_coords)) > 0) or (
-            torch.sum(torch.isinf(img_coords)) > 0
-        ):
+        if not torch.all(valid_img):
             print("Warning: Nan or Inf values in image coordinate tensor.")
-            raise ValueError("Nan or Inf in image coordinates")
+            # raise ValueError("Nan or Inf in image coordinates")
 
         return img_coords
 

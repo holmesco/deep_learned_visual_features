@@ -1,0 +1,56 @@
+{
+    "home_path": "/home/cho/projects/deep_learned_visual_features",
+    "description": "SVD with VGG16 encoder, tuned ransac",
+    "experiment_name": "test_svd_v4_t0p5_r4",
+    "dataset_name": "dataset_inthedark_t0p5_r4",
+    "checkpoint_name": "network_vgg16_svd_v1",
+    "network": {
+        "type": "unet_vgg16",
+        "num_channels": 3,
+        "num_classes": 1,
+        "layer_size": 16,
+        "pretrained": false
+    },
+    "pipeline": {
+        "window_h": 16,
+        "window_w": 16,
+        "dense_matching": true,
+        "localization": "svd",
+        "use_inv_cov_weights": false
+    },
+    "outlier_rejection": {
+        "on": true,
+        "type": "ransac",
+        "dim": [
+            "2D"
+        ],
+        "inlier_threshold": 0.5,
+        "error_tolerance": {
+            "3D": 1.0,
+            "2D": 20.0
+        },
+        "num_iterations": 200
+    },
+    "data_loader": {
+        "batch_size": 2,
+        "num_workers": 4,
+        "shuffle": false
+    },
+    "stereo": {
+        "cu": 257.446,
+        "cv": 197.718,
+        "f": 387.777,
+        "b": 0.239965
+    },
+    "dataset": {
+        "height": 384,
+        "width": 512,
+        "use_normalization": false,
+        "use_disparity": true
+    },
+    "loss": {
+        "types": [
+            "pose_plane"
+        ]
+    }
+}

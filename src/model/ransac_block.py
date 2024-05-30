@@ -190,6 +190,11 @@ class RANSACBlock(nn.Module):
             else:
                 err_pts = torch.norm(pts_3D_trg - pts_3D_trg_est, dim=1)  # BxN
 
+            # If any NaN or Inf values, go to next iteration
+            if torch.any(torch.isnan(err_pts)) or torch.any(torch.isinf(err_pts)):
+                i += 1
+                continue
+
             err_pts_small = err_pts < self.error_tolerance
             err_pts_small[valid_pts_src[:, 0, :] == 0] = 0
             err_pts_small[valid_pts_trg[:, 0, :] == 0] = 0
