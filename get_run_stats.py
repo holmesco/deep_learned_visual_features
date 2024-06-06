@@ -63,12 +63,20 @@ class CompareStats:
                         runtime = np.nan
                     outputs_se3 = stats.outputs_se3[live_run_id]
                     targets_se3 = stats.targets_se3[live_run_id]
+                    # Get actual pose data
+                    pose_log = stats.targets_log[live_run_id]
+                    delta_t_norm = np.mean(np.linalg.norm(pose_log[:, :3], axis=1))
+                    delta_r_norm = np.mean(
+                        np.linalg.norm(np.rad2deg(pose_log[:, 3:]), axis=1)
+                    )
                     res_dict = {
                         "map_run": map_run_id,
                         "live_run": live_run_id,
                         "pipeline": self.labels[i],
                         "avg_num_inliers": num_inliers,
                         "runtime": runtime,
+                        "delta_t_norm": delta_t_norm,
+                        "delta_r_norm": delta_r_norm,
                     }
                     # If getting local optimizer results then filter local minima
                     filter = "local" in self.labels[i].lower()
@@ -76,6 +84,7 @@ class CompareStats:
                     rmse_data, rmse_data_filt = rmse(
                         outputs_se3, targets_se3, filter=filter
                     )
+
                     # Store data
                     df_list.append(res_dict | rmse_data)
                     # if filtered data is available, also store
@@ -345,30 +354,32 @@ def rmse(outputs_se3, targets_se3, filter=False):
 def print_tables_RSS():
 
     # Print default test tables
-    # print("Results with min possible delta")
-    # print("================================")
-    # results_paths = [
-    #     "results/test_svd_v2/inthedark",
-    #     "results/test_svd_v3/inthedark",
-    #     "results/test_sdpr_v3/inthedark",
-    # ]
-    # labels = ["SVD", "VGG16 SVD", "VGG16 SDPR"]
-    # map_ids = [2, 11, 16, 17, 23, 28]
+    print("Results with min possible delta")
+    print("================================")
+    results_paths = [
+        "results/test_baseline_original/inthedark",
+        "results/test_svd_v4_original/inthedark",
+        "results/test_sdpr_v4_original/inthedark",
+    ]
+    labels = ["SVD", "VGG16 SVD", "VGG16 SDPR"]
+    map_ids = [2, 11, 16, 17, 23, 28]
 
-    # print_table_RSS(results_paths=results_paths,
-    #                 labels = labels,
-    #                 map_ids=map_ids)
+    print_table_RSS(results_paths=results_paths, labels=labels, map_ids=map_ids)
 
     # Print results with increased distances
-    print("Min delta: 1 m or 30 deg ")
+    print("Min delta: 0.5 m or 4 deg ")
     print("=========================")
     results_paths = [
-        "results/test_sdpr_v4_t0p5_r4/inthedark",
+        "results/test_baseline_t0p5_r4/inthedark",
         "results/test_svd_v4_t0p5_r4/inthedark",
+        "results/test_sdpr_v4_t0p5_r4/inthedark",
     ]
-    labels = ["VGG16 SDPR", "VGG16 SVD"]
+    labels = [
+        "Baseline",
+        "Baseline-V",
+        "Ours",
+    ]
     map_ids = [2, 11, 16, 17, 23, 28]
-    # map_ids = [2]
     print_table_RSS(results_paths=results_paths, labels=labels, map_ids=map_ids)
 
 
@@ -382,16 +393,24 @@ def print_table_RSS(results_paths, labels, map_ids):
     )
     stats = compare_stats.get_aggregate_stats()
 
-    print("Full Table:")
+    # Full table
     stats.sort_values(["map_run", "live_run"], inplace=True)
-    stats.drop("runtime", axis=1, inplace=True)
+    # stats.drop("runtime", axis=1, inplace=True)
     latex_tbl = stats.to_latex(float_format="%.3f", index=False)
+    print("Full Table:")
     print(latex_tbl)
 
-    print("Aggregated Table:")
-    # Drop rows with high error
+    # Averages
     stats_avg = stats.groupby(["pipeline"]).mean().drop(labels=["map_run"], axis=1)
+    # print run delta pose characteristics
+    run_stats = stats_avg[["delta_t_norm", "delta_r_norm"]]
+    print("Run Relative Pose Stats:")
+    print(run_stats)
+
+    # Aggregate table
+    stats_avg = stats_avg[["avg_num_inliers", "x", "y", "yaw", "runtime"]]
     latex_tbl = stats_avg.to_latex(float_format="%.3f")
+    print("Aggregated Table:")
     print(latex_tbl)
 
 

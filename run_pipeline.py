@@ -307,7 +307,65 @@ def draw_keypoint_imgs(kp1, kp2_pseudo, weights, im1_cv, im2_cv, num_matches=50)
     return img_match, img_vo
 
 
-def inlier_segment(id, config, device=0, n_frames=100, step=1, num_matches=-1):
+def compare_accuracy(id, config1, config2, device=1, n_frames=10, n_trials=10, step=5):
+    """Show inliers and VO tracks over a segment of frames with increasing distance from
+    the initial frame."""
+    config1_label = "sdpr"
+    config2_label = "svd"
+
+    # Generate sequence of ids
+    id_parts = id.split("-")
+    live_frame_start = int(id_parts[2])
+    ids = []
+    for i in range(0, n_frames * step, step):
+        for j in range(n_trials):
+            ids += ["-".join([*id_parts[:2], str(live_frame_start + i), *id_parts[3:]])]
+    # Create and run pipeline on first config
+    pipeline = RunPipeline(config=config1, sample_ids=ids, device=device)
+    diffs1, outputs1 = pipeline.run_pipeline()
+    # Create and run pipeline on second config
+    pipeline = RunPipeline(config=config2, sample_ids=ids, device=device)
+    diffs2, outputs2 = pipeline.run_pipeline()
+    # Get delta values
+    deltas = []
+    for i in range(len(outputs1)):
+        relative_pose = outputs1[i]["pose_log"].numpy()
+        trans = np.linalg.norm(relative_pose[:3])
+        rot = np.linalg.norm(np.rad2deg(relative_pose[3:]))
+        deltas += [np.array([trans, rot])]
+    deltas = np.vstack(deltas)
+    # Get error values (ax,lat,heading)
+    diffs1 = np.abs(torch.vstack(diffs1).numpy())
+    diffs2 = np.abs(torch.vstack(diffs2).numpy())
+    diffs1 = diffs1[:, [0, 1, 5]]
+    diffs2 = diffs2[:, [0, 1, 5]]
+    diffs1[:, 2] = np.rad2deg(diffs1[:, 2])
+    diffs2[:, 2] = np.rad2deg(diffs2[:, 2])
+    # Reshape for box plots
+
+    fig, axs = plt.subplots(3, 2)
+    axs[0, 0].plot(deltas[:, 0], diffs1[:, 0], ".", label=config1_label)
+    axs[0, 0].plot(deltas[:, 0], diffs2[:, 0], ".", label=config2_label)
+    axs[1, 0].plot(deltas[:, 0], diffs1[:, 1], ".", label=config1_label)
+    axs[1, 0].plot(deltas[:, 0], diffs2[:, 1], ".", label=config2_label)
+    axs[2, 0].plot(deltas[:, 0], diffs1[:, 2], ".", label=config1_label)
+    axs[2, 0].plot(deltas[:, 0], diffs2[:, 2], ".", label=config2_label)
+    axs[0, 1].plot(deltas[:, 1], diffs1[:, 0], ".", label=config1_label)
+    axs[0, 1].plot(deltas[:, 1], diffs2[:, 0], ".", label=config2_label)
+    axs[1, 1].plot(deltas[:, 1], diffs1[:, 1], ".", label=config1_label)
+    axs[1, 1].plot(deltas[:, 1], diffs2[:, 1], ".", label=config2_label)
+    axs[2, 1].plot(deltas[:, 1], diffs1[:, 2], ".", label=config1_label)
+    axs[2, 1].plot(deltas[:, 1], diffs2[:, 2], ".", label=config2_label)
+    # Labels
+    axs[2, 0].set_xlabel("Translation Change (m)")
+    axs[2, 1].set_xlabel("Rotation Change (deg)")
+    axs[0, 0].set_ylabel("Absolute Axial Error")
+    axs[1, 0].set_ylabel("Absolute Lateral Error")
+    axs[2, 0].set_ylabel("Absolute Heading Error")
+    plt.show()
+
+
+def feature_match_video(id, config, device=0, n_frames=100, step=1, num_matches=-1):
     """Show inliers and VO tracks over a segment of frames with increasing distance from
     the initial frame."""
     # Generate sequence of ids
@@ -381,22 +439,21 @@ def get_imgs(id="inthedark-27-2182-8-1886"):
 
 if __name__ == "__main__":
 
-    # # get sample ids
-    # sample_ids = [
-    #     "inthedark-21-2057-27-1830", day day
-    #     "inthedark-1-15-19-16",     night day
-    #     "inthedark-27-2182-8-1886", lensflare
-    # ]
-    # # Instantiate
-    # t = RunPipeline("./_test/config_vgg16.json", sample_ids=sample_ids)
-    # t.run_pipeline(id="inthedark-1-15-19-16")
-    # compare_keypoints("inthedark-16-123-2-21", device=1)
-    compare_keypoints("inthedark-16-954-2-256", num_matches=50, device=1)
+    # compare_keypoints("inthedark-16-954-2-256", num_matches=50, device=1)
 
-    # figure:
+    # KEYPOINT COMPARISON IMAGES:
     # compare_keypoints("inthedark-1-15-19-16", num_matches=50, device=0)
-    # compare_keypoints("inthedark-21-2057-27-1830", num_matches=-1, device=1)
+    # compare_keypoints("inthedark-1-10-19-40", num_matches=50, device=0)
+    # compare_keypoints("inthedark-21-2057-27-1830", num_matches=50, device=0)
 
-    # inlier_segment(
-    #     id="inthedark-21-2152-27-1850", n_frames=50, config="./config/test_sdpr_v4.json"
+    # FEATURE MATCHING VIDEOS
+    feature_match_video(
+        id="inthedark-1-10-19-50", n_frames=50, config="./config/test_sdpr_v4.json"
+    )
+
+    # COMPARE ACCURACY
+    # compare_accuracy(
+    #     id="inthedark-21-2152-27-1850",
+    #     config1="config/test_sdpr_v4.json",
+    #     config2="config/test_svd_v4.json",
     # )
