@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.model.sdpr_block import SDPRBlock
+from src.model.pose_sdp_block import PoseSDPBlock
 from src.model.svd_block import SVDBlock
 from src.utils.lie_algebra import se3_inv, se3_log
 from src.utils.stereo_camera_model import StereoCameraModel
@@ -58,7 +58,7 @@ class RANSACBlock(nn.Module):
             and config["outlier_rejection"]["use_inv_cov_weights"]
         )
         if self.use_sdpr:
-            self.loc = SDPRBlock(T_s_v)
+            self.loc = PoseSDPBlock(T_s_v)
         else:
             self.svd = SVDBlock(T_s_v)
 

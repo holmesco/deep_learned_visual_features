@@ -12,7 +12,7 @@ import torch
 from src.dataset import Dataset
 from src.model.lieopt_block import LieOptBlock
 from src.model.pipeline import Pipeline
-from src.model.sdpr_block import SDPRBlock
+from src.model.pose_sdp_block import PoseSDPBlock
 from src.model.svd_block import SVDBlock
 from src.model.unet import UNet
 from src.utils.keypoint_tools import get_inv_cov_weights
@@ -111,7 +111,7 @@ class TestLocalize(unittest.TestCase):
         transformation"""
 
         # Instantiate
-        sdpr_block = SDPRBlock(t.T_s_v)
+        sdpr_block = PoseSDPBlock(t.T_s_v)
         T_trg_src = sdpr_block(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, verbose=True
         )
@@ -128,7 +128,7 @@ class TestLocalize(unittest.TestCase):
             t.keypoints_3D_trg, valid, t.stereo_cam
         )
         # Instantiate
-        sdpr_block = SDPRBlock(t.T_s_v)
+        sdpr_block = PoseSDPBlock(t.T_s_v)
         Q, scales, offsets = sdpr_block.get_obj_matrix(
             t.keypoints_3D_src, t.keypoints_3D_trg, t.weights, inv_cov_weights
         )

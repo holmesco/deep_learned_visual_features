@@ -6,16 +6,13 @@ from torch.profiler import record_function
 from src.model.keypoint_block import KeypointBlock
 from src.model.lieopt_block import LieOptBlock
 from src.model.matcher_block import MatcherBlock
+from src.model.pose_sdp_block import PoseSDPBlock
 from src.model.ransac_block import RANSACBlock
-from src.model.sdpr_block import SDPRBlock
 from src.model.svd_block import SVDBlock
 from src.model.unet import UNet
 from src.model.weight_block import WeightBlock
-from src.utils.keypoint_tools import (
-    get_inv_cov_weights,
-    get_keypoint_info,
-    get_norm_descriptors,
-)
+from src.utils.keypoint_tools import (get_inv_cov_weights, get_keypoint_info,
+                                      get_norm_descriptors)
 from src.utils.lie_algebra import se3_inv, se3_log
 from src.utils.stereo_camera_model import StereoCameraModel
 
@@ -69,7 +66,7 @@ class Pipeline(nn.Module):
         self.matcher_block = MatcherBlock()
         self.weight_block = WeightBlock()
         self.svd_block = SVDBlock(self.T_s_v)
-        self.sdpr_block = SDPRBlock(self.T_s_v)
+        self.sdpr_block = PoseSDPBlock(self.T_s_v)
         self.lieopt_block = LieOptBlock(self.T_s_v, self.batch_size, self.N_kpts)
         self.ransac_block = RANSACBlock(config, self.T_s_v)
 
